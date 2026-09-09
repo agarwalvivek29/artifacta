@@ -2,9 +2,9 @@
 // versions:
 // 	protoc-gen-go v1.36.12
 // 	protoc        (unknown)
-// source: herenow/v1/audit.proto
+// source: artifacta/v1/audit.proto
 
-package herenowv1
+package artifactav1
 
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
@@ -62,11 +62,11 @@ func (x AuditAction) String() string {
 }
 
 func (AuditAction) Descriptor() protoreflect.EnumDescriptor {
-	return file_herenow_v1_audit_proto_enumTypes[0].Descriptor()
+	return file_artifacta_v1_audit_proto_enumTypes[0].Descriptor()
 }
 
 func (AuditAction) Type() protoreflect.EnumType {
-	return &file_herenow_v1_audit_proto_enumTypes[0]
+	return &file_artifacta_v1_audit_proto_enumTypes[0]
 }
 
 func (x AuditAction) Number() protoreflect.EnumNumber {
@@ -75,7 +75,7 @@ func (x AuditAction) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use AuditAction.Descriptor instead.
 func (AuditAction) EnumDescriptor() ([]byte, []int) {
-	return file_herenow_v1_audit_proto_rawDescGZIP(), []int{0}
+	return file_artifacta_v1_audit_proto_rawDescGZIP(), []int{0}
 }
 
 // AuditEvent is one row of the inbuilt, append-only, hash-chained audit trail.
@@ -87,7 +87,7 @@ type AuditEvent struct {
 	Ts            *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=ts,proto3" json:"ts,omitempty"`
 	PrincipalSub  string                 `protobuf:"bytes,3,opt,name=principal_sub,json=principalSub,proto3" json:"principal_sub,omitempty"`
 	Slug          string                 `protobuf:"bytes,4,opt,name=slug,proto3" json:"slug,omitempty"`
-	Action        AuditAction            `protobuf:"varint,5,opt,name=action,proto3,enum=herenow.v1.AuditAction" json:"action,omitempty"`
+	Action        AuditAction            `protobuf:"varint,5,opt,name=action,proto3,enum=artifacta.v1.AuditAction" json:"action,omitempty"`
 	Allowed       bool                   `protobuf:"varint,6,opt,name=allowed,proto3" json:"allowed,omitempty"`
 	PrevHash      string                 `protobuf:"bytes,7,opt,name=prev_hash,json=prevHash,proto3" json:"prev_hash,omitempty"`
 	Hash          string                 `protobuf:"bytes,8,opt,name=hash,proto3" json:"hash,omitempty"`
@@ -97,7 +97,7 @@ type AuditEvent struct {
 
 func (x *AuditEvent) Reset() {
 	*x = AuditEvent{}
-	mi := &file_herenow_v1_audit_proto_msgTypes[0]
+	mi := &file_artifacta_v1_audit_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -109,7 +109,7 @@ func (x *AuditEvent) String() string {
 func (*AuditEvent) ProtoMessage() {}
 
 func (x *AuditEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_herenow_v1_audit_proto_msgTypes[0]
+	mi := &file_artifacta_v1_audit_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -122,7 +122,7 @@ func (x *AuditEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AuditEvent.ProtoReflect.Descriptor instead.
 func (*AuditEvent) Descriptor() ([]byte, []int) {
-	return file_herenow_v1_audit_proto_rawDescGZIP(), []int{0}
+	return file_artifacta_v1_audit_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *AuditEvent) GetSeq() int64 {
@@ -181,19 +181,18 @@ func (x *AuditEvent) GetHash() string {
 	return ""
 }
 
-var File_herenow_v1_audit_proto protoreflect.FileDescriptor
+var File_artifacta_v1_audit_proto protoreflect.FileDescriptor
 
-const file_herenow_v1_audit_proto_rawDesc = "" +
+const file_artifacta_v1_audit_proto_rawDesc = "" +
 	"\n" +
-	"\x16herenow/v1/audit.proto\x12\n" +
-	"herenow.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xff\x01\n" +
+	"\x18artifacta/v1/audit.proto\x12\fartifacta.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\x81\x02\n" +
 	"\n" +
 	"AuditEvent\x12\x10\n" +
 	"\x03seq\x18\x01 \x01(\x03R\x03seq\x12*\n" +
 	"\x02ts\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\x02ts\x12#\n" +
 	"\rprincipal_sub\x18\x03 \x01(\tR\fprincipalSub\x12\x12\n" +
-	"\x04slug\x18\x04 \x01(\tR\x04slug\x12/\n" +
-	"\x06action\x18\x05 \x01(\x0e2\x17.herenow.v1.AuditActionR\x06action\x12\x18\n" +
+	"\x04slug\x18\x04 \x01(\tR\x04slug\x121\n" +
+	"\x06action\x18\x05 \x01(\x0e2\x19.artifacta.v1.AuditActionR\x06action\x12\x18\n" +
 	"\aallowed\x18\x06 \x01(\bR\aallowed\x12\x1b\n" +
 	"\tprev_hash\x18\a \x01(\tR\bprevHash\x12\x12\n" +
 	"\x04hash\x18\b \x01(\tR\x04hash*\x8b\x01\n" +
@@ -202,34 +201,32 @@ const file_herenow_v1_audit_proto_rawDesc = "" +
 	"\x14AUDIT_ACTION_PUBLISH\x10\x01\x12\x15\n" +
 	"\x11AUDIT_ACTION_VIEW\x10\x02\x12\x16\n" +
 	"\x12AUDIT_ACTION_SHARE\x10\x03\x12\x15\n" +
-	"\x11AUDIT_ACTION_DENY\x10\x04B\xbb\x01\n" +
-	"\x0ecom.herenow.v1B\n" +
-	"AuditProtoP\x01ZTgithub.com/agarwalvivek29/here.now/packages/schema/generated/go/herenow/v1;herenowv1\xa2\x02\x03HXX\xaa\x02\n" +
-	"Herenow.V1\xca\x02\n" +
-	"Herenow\\V1\xe2\x02\x16Herenow\\V1\\GPBMetadata\xea\x02\vHerenow::V1b\x06proto3"
+	"\x11AUDIT_ACTION_DENY\x10\x04B\xc9\x01\n" +
+	"\x10com.artifacta.v1B\n" +
+	"AuditProtoP\x01ZXgithub.com/agarwalvivek29/here.now/packages/schema/generated/go/artifacta/v1;artifactav1\xa2\x02\x03AXX\xaa\x02\fArtifacta.V1\xca\x02\fArtifacta\\V1\xe2\x02\x18Artifacta\\V1\\GPBMetadata\xea\x02\rArtifacta::V1b\x06proto3"
 
 var (
-	file_herenow_v1_audit_proto_rawDescOnce sync.Once
-	file_herenow_v1_audit_proto_rawDescData []byte
+	file_artifacta_v1_audit_proto_rawDescOnce sync.Once
+	file_artifacta_v1_audit_proto_rawDescData []byte
 )
 
-func file_herenow_v1_audit_proto_rawDescGZIP() []byte {
-	file_herenow_v1_audit_proto_rawDescOnce.Do(func() {
-		file_herenow_v1_audit_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_herenow_v1_audit_proto_rawDesc), len(file_herenow_v1_audit_proto_rawDesc)))
+func file_artifacta_v1_audit_proto_rawDescGZIP() []byte {
+	file_artifacta_v1_audit_proto_rawDescOnce.Do(func() {
+		file_artifacta_v1_audit_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_artifacta_v1_audit_proto_rawDesc), len(file_artifacta_v1_audit_proto_rawDesc)))
 	})
-	return file_herenow_v1_audit_proto_rawDescData
+	return file_artifacta_v1_audit_proto_rawDescData
 }
 
-var file_herenow_v1_audit_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_herenow_v1_audit_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
-var file_herenow_v1_audit_proto_goTypes = []any{
-	(AuditAction)(0),              // 0: herenow.v1.AuditAction
-	(*AuditEvent)(nil),            // 1: herenow.v1.AuditEvent
+var file_artifacta_v1_audit_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_artifacta_v1_audit_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
+var file_artifacta_v1_audit_proto_goTypes = []any{
+	(AuditAction)(0),              // 0: artifacta.v1.AuditAction
+	(*AuditEvent)(nil),            // 1: artifacta.v1.AuditEvent
 	(*timestamppb.Timestamp)(nil), // 2: google.protobuf.Timestamp
 }
-var file_herenow_v1_audit_proto_depIdxs = []int32{
-	2, // 0: herenow.v1.AuditEvent.ts:type_name -> google.protobuf.Timestamp
-	0, // 1: herenow.v1.AuditEvent.action:type_name -> herenow.v1.AuditAction
+var file_artifacta_v1_audit_proto_depIdxs = []int32{
+	2, // 0: artifacta.v1.AuditEvent.ts:type_name -> google.protobuf.Timestamp
+	0, // 1: artifacta.v1.AuditEvent.action:type_name -> artifacta.v1.AuditAction
 	2, // [2:2] is the sub-list for method output_type
 	2, // [2:2] is the sub-list for method input_type
 	2, // [2:2] is the sub-list for extension type_name
@@ -237,27 +234,27 @@ var file_herenow_v1_audit_proto_depIdxs = []int32{
 	0, // [0:2] is the sub-list for field type_name
 }
 
-func init() { file_herenow_v1_audit_proto_init() }
-func file_herenow_v1_audit_proto_init() {
-	if File_herenow_v1_audit_proto != nil {
+func init() { file_artifacta_v1_audit_proto_init() }
+func file_artifacta_v1_audit_proto_init() {
+	if File_artifacta_v1_audit_proto != nil {
 		return
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_herenow_v1_audit_proto_rawDesc), len(file_herenow_v1_audit_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_artifacta_v1_audit_proto_rawDesc), len(file_artifacta_v1_audit_proto_rawDesc)),
 			NumEnums:      1,
 			NumMessages:   1,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
-		GoTypes:           file_herenow_v1_audit_proto_goTypes,
-		DependencyIndexes: file_herenow_v1_audit_proto_depIdxs,
-		EnumInfos:         file_herenow_v1_audit_proto_enumTypes,
-		MessageInfos:      file_herenow_v1_audit_proto_msgTypes,
+		GoTypes:           file_artifacta_v1_audit_proto_goTypes,
+		DependencyIndexes: file_artifacta_v1_audit_proto_depIdxs,
+		EnumInfos:         file_artifacta_v1_audit_proto_enumTypes,
+		MessageInfos:      file_artifacta_v1_audit_proto_msgTypes,
 	}.Build()
-	File_herenow_v1_audit_proto = out.File
-	file_herenow_v1_audit_proto_goTypes = nil
-	file_herenow_v1_audit_proto_depIdxs = nil
+	File_artifacta_v1_audit_proto = out.File
+	file_artifacta_v1_audit_proto_goTypes = nil
+	file_artifacta_v1_audit_proto_depIdxs = nil
 }

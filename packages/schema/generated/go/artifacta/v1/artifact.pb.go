@@ -2,9 +2,9 @@
 // versions:
 // 	protoc-gen-go v1.36.12
 // 	protoc        (unknown)
-// source: herenow/v1/artifact.proto
+// source: artifacta/v1/artifact.proto
 
-package herenowv1
+package artifactav1
 
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
@@ -59,11 +59,11 @@ func (x Visibility) String() string {
 }
 
 func (Visibility) Descriptor() protoreflect.EnumDescriptor {
-	return file_herenow_v1_artifact_proto_enumTypes[0].Descriptor()
+	return file_artifacta_v1_artifact_proto_enumTypes[0].Descriptor()
 }
 
 func (Visibility) Type() protoreflect.EnumType {
-	return &file_herenow_v1_artifact_proto_enumTypes[0]
+	return &file_artifacta_v1_artifact_proto_enumTypes[0]
 }
 
 func (x Visibility) Number() protoreflect.EnumNumber {
@@ -72,7 +72,7 @@ func (x Visibility) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use Visibility.Descriptor instead.
 func (Visibility) EnumDescriptor() ([]byte, []int) {
-	return file_herenow_v1_artifact_proto_rawDescGZIP(), []int{0}
+	return file_artifacta_v1_artifact_proto_rawDescGZIP(), []int{0}
 }
 
 // Identity is a verified principal. Sub is the immutable subject id (OIDC `sub`
@@ -87,7 +87,7 @@ type Identity struct {
 
 func (x *Identity) Reset() {
 	*x = Identity{}
-	mi := &file_herenow_v1_artifact_proto_msgTypes[0]
+	mi := &file_artifacta_v1_artifact_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -99,7 +99,7 @@ func (x *Identity) String() string {
 func (*Identity) ProtoMessage() {}
 
 func (x *Identity) ProtoReflect() protoreflect.Message {
-	mi := &file_herenow_v1_artifact_proto_msgTypes[0]
+	mi := &file_artifacta_v1_artifact_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -112,7 +112,7 @@ func (x *Identity) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Identity.ProtoReflect.Descriptor instead.
 func (*Identity) Descriptor() ([]byte, []int) {
-	return file_herenow_v1_artifact_proto_rawDescGZIP(), []int{0}
+	return file_artifacta_v1_artifact_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *Identity) GetSub() string {
@@ -138,7 +138,7 @@ type Artifact struct {
 	Slug        string                 `protobuf:"bytes,1,opt,name=slug,proto3" json:"slug,omitempty"`
 	OwnerSub    string                 `protobuf:"bytes,2,opt,name=owner_sub,json=ownerSub,proto3" json:"owner_sub,omitempty"`
 	Title       string                 `protobuf:"bytes,3,opt,name=title,proto3" json:"title,omitempty"`
-	Visibility  Visibility             `protobuf:"varint,4,opt,name=visibility,proto3,enum=herenow.v1.Visibility" json:"visibility,omitempty"`
+	Visibility  Visibility             `protobuf:"varint,4,opt,name=visibility,proto3,enum=artifacta.v1.Visibility" json:"visibility,omitempty"`
 	ContentType string                 `protobuf:"bytes,5,opt,name=content_type,json=contentType,proto3" json:"content_type,omitempty"`
 	CreatedAt   *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	// latest_version is the highest version number that exists for this artifact
@@ -150,7 +150,7 @@ type Artifact struct {
 
 func (x *Artifact) Reset() {
 	*x = Artifact{}
-	mi := &file_herenow_v1_artifact_proto_msgTypes[1]
+	mi := &file_artifacta_v1_artifact_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -162,7 +162,7 @@ func (x *Artifact) String() string {
 func (*Artifact) ProtoMessage() {}
 
 func (x *Artifact) ProtoReflect() protoreflect.Message {
-	mi := &file_herenow_v1_artifact_proto_msgTypes[1]
+	mi := &file_artifacta_v1_artifact_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -175,7 +175,7 @@ func (x *Artifact) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Artifact.ProtoReflect.Descriptor instead.
 func (*Artifact) Descriptor() ([]byte, []int) {
-	return file_herenow_v1_artifact_proto_rawDescGZIP(), []int{1}
+	return file_artifacta_v1_artifact_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *Artifact) GetSlug() string {
@@ -247,7 +247,7 @@ type ArtifactVersion struct {
 
 func (x *ArtifactVersion) Reset() {
 	*x = ArtifactVersion{}
-	mi := &file_herenow_v1_artifact_proto_msgTypes[2]
+	mi := &file_artifacta_v1_artifact_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -259,7 +259,7 @@ func (x *ArtifactVersion) String() string {
 func (*ArtifactVersion) ProtoMessage() {}
 
 func (x *ArtifactVersion) ProtoReflect() protoreflect.Message {
-	mi := &file_herenow_v1_artifact_proto_msgTypes[2]
+	mi := &file_artifacta_v1_artifact_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -272,7 +272,7 @@ func (x *ArtifactVersion) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ArtifactVersion.ProtoReflect.Descriptor instead.
 func (*ArtifactVersion) Descriptor() ([]byte, []int) {
-	return file_herenow_v1_artifact_proto_rawDescGZIP(), []int{2}
+	return file_artifacta_v1_artifact_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *ArtifactVersion) GetSlug() string {
@@ -330,7 +330,7 @@ type Grant struct {
 
 func (x *Grant) Reset() {
 	*x = Grant{}
-	mi := &file_herenow_v1_artifact_proto_msgTypes[3]
+	mi := &file_artifacta_v1_artifact_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -342,7 +342,7 @@ func (x *Grant) String() string {
 func (*Grant) ProtoMessage() {}
 
 func (x *Grant) ProtoReflect() protoreflect.Message {
-	mi := &file_herenow_v1_artifact_proto_msgTypes[3]
+	mi := &file_artifacta_v1_artifact_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -355,7 +355,7 @@ func (x *Grant) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Grant.ProtoReflect.Descriptor instead.
 func (*Grant) Descriptor() ([]byte, []int) {
-	return file_herenow_v1_artifact_proto_rawDescGZIP(), []int{3}
+	return file_artifacta_v1_artifact_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *Grant) GetSlug() string {
@@ -415,7 +415,7 @@ type Comment struct {
 
 func (x *Comment) Reset() {
 	*x = Comment{}
-	mi := &file_herenow_v1_artifact_proto_msgTypes[4]
+	mi := &file_artifacta_v1_artifact_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -427,7 +427,7 @@ func (x *Comment) String() string {
 func (*Comment) ProtoMessage() {}
 
 func (x *Comment) ProtoReflect() protoreflect.Message {
-	mi := &file_herenow_v1_artifact_proto_msgTypes[4]
+	mi := &file_artifacta_v1_artifact_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -440,7 +440,7 @@ func (x *Comment) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Comment.ProtoReflect.Descriptor instead.
 func (*Comment) Descriptor() ([]byte, []int) {
-	return file_herenow_v1_artifact_proto_rawDescGZIP(), []int{4}
+	return file_artifacta_v1_artifact_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *Comment) GetId() string {
@@ -531,7 +531,7 @@ type TextAnchor struct {
 
 func (x *TextAnchor) Reset() {
 	*x = TextAnchor{}
-	mi := &file_herenow_v1_artifact_proto_msgTypes[5]
+	mi := &file_artifacta_v1_artifact_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -543,7 +543,7 @@ func (x *TextAnchor) String() string {
 func (*TextAnchor) ProtoMessage() {}
 
 func (x *TextAnchor) ProtoReflect() protoreflect.Message {
-	mi := &file_herenow_v1_artifact_proto_msgTypes[5]
+	mi := &file_artifacta_v1_artifact_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -556,7 +556,7 @@ func (x *TextAnchor) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TextAnchor.ProtoReflect.Descriptor instead.
 func (*TextAnchor) Descriptor() ([]byte, []int) {
-	return file_herenow_v1_artifact_proto_rawDescGZIP(), []int{5}
+	return file_artifacta_v1_artifact_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *TextAnchor) GetQuote() string {
@@ -594,21 +594,20 @@ func (x *TextAnchor) GetEnd() int32 {
 	return 0
 }
 
-var File_herenow_v1_artifact_proto protoreflect.FileDescriptor
+var File_artifacta_v1_artifact_proto protoreflect.FileDescriptor
 
-const file_herenow_v1_artifact_proto_rawDesc = "" +
+const file_artifacta_v1_artifact_proto_rawDesc = "" +
 	"\n" +
-	"\x19herenow/v1/artifact.proto\x12\n" +
-	"herenow.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"2\n" +
+	"\x1bartifacta/v1/artifact.proto\x12\fartifacta.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"2\n" +
 	"\bIdentity\x12\x10\n" +
 	"\x03sub\x18\x01 \x01(\tR\x03sub\x12\x14\n" +
-	"\x05email\x18\x02 \x01(\tR\x05email\"\x8e\x02\n" +
+	"\x05email\x18\x02 \x01(\tR\x05email\"\x90\x02\n" +
 	"\bArtifact\x12\x12\n" +
 	"\x04slug\x18\x01 \x01(\tR\x04slug\x12\x1b\n" +
 	"\towner_sub\x18\x02 \x01(\tR\bownerSub\x12\x14\n" +
-	"\x05title\x18\x03 \x01(\tR\x05title\x126\n" +
+	"\x05title\x18\x03 \x01(\tR\x05title\x128\n" +
 	"\n" +
-	"visibility\x18\x04 \x01(\x0e2\x16.herenow.v1.VisibilityR\n" +
+	"visibility\x18\x04 \x01(\x0e2\x18.artifacta.v1.VisibilityR\n" +
 	"visibility\x12!\n" +
 	"\fcontent_type\x18\x05 \x01(\tR\vcontentType\x129\n" +
 	"\n" +
@@ -630,7 +629,7 @@ const file_herenow_v1_artifact_proto_rawDesc = "" +
 	"\n" +
 	"granted_by\x18\x03 \x01(\tR\tgrantedBy\x129\n" +
 	"\n" +
-	"created_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\"\xc1\x02\n" +
+	"created_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\"\xc3\x02\n" +
 	"\aComment\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04slug\x18\x02 \x01(\tR\x04slug\x12\x18\n" +
@@ -641,8 +640,8 @@ const file_herenow_v1_artifact_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12\x12\n" +
 	"\x04body\x18\a \x01(\tR\x04body\x12\x1a\n" +
-	"\bresolved\x18\b \x01(\bR\bresolved\x12.\n" +
-	"\x06anchor\x18\t \x01(\v2\x16.herenow.v1.TextAnchorR\x06anchor\x12\x1b\n" +
+	"\bresolved\x18\b \x01(\bR\bresolved\x120\n" +
+	"\x06anchor\x18\t \x01(\v2\x18.artifacta.v1.TextAnchorR\x06anchor\x12\x1b\n" +
 	"\tparent_id\x18\n" +
 	" \x01(\tR\bparentId\"z\n" +
 	"\n" +
@@ -657,42 +656,40 @@ const file_herenow_v1_artifact_proto_rawDesc = "" +
 	"\x16VISIBILITY_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12VISIBILITY_PRIVATE\x10\x01\x12\x16\n" +
 	"\x12VISIBILITY_INVITED\x10\x02\x12\x12\n" +
-	"\x0eVISIBILITY_ORG\x10\x03B\xbe\x01\n" +
-	"\x0ecom.herenow.v1B\rArtifactProtoP\x01ZTgithub.com/agarwalvivek29/here.now/packages/schema/generated/go/herenow/v1;herenowv1\xa2\x02\x03HXX\xaa\x02\n" +
-	"Herenow.V1\xca\x02\n" +
-	"Herenow\\V1\xe2\x02\x16Herenow\\V1\\GPBMetadata\xea\x02\vHerenow::V1b\x06proto3"
+	"\x0eVISIBILITY_ORG\x10\x03B\xcc\x01\n" +
+	"\x10com.artifacta.v1B\rArtifactProtoP\x01ZXgithub.com/agarwalvivek29/here.now/packages/schema/generated/go/artifacta/v1;artifactav1\xa2\x02\x03AXX\xaa\x02\fArtifacta.V1\xca\x02\fArtifacta\\V1\xe2\x02\x18Artifacta\\V1\\GPBMetadata\xea\x02\rArtifacta::V1b\x06proto3"
 
 var (
-	file_herenow_v1_artifact_proto_rawDescOnce sync.Once
-	file_herenow_v1_artifact_proto_rawDescData []byte
+	file_artifacta_v1_artifact_proto_rawDescOnce sync.Once
+	file_artifacta_v1_artifact_proto_rawDescData []byte
 )
 
-func file_herenow_v1_artifact_proto_rawDescGZIP() []byte {
-	file_herenow_v1_artifact_proto_rawDescOnce.Do(func() {
-		file_herenow_v1_artifact_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_herenow_v1_artifact_proto_rawDesc), len(file_herenow_v1_artifact_proto_rawDesc)))
+func file_artifacta_v1_artifact_proto_rawDescGZIP() []byte {
+	file_artifacta_v1_artifact_proto_rawDescOnce.Do(func() {
+		file_artifacta_v1_artifact_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_artifacta_v1_artifact_proto_rawDesc), len(file_artifacta_v1_artifact_proto_rawDesc)))
 	})
-	return file_herenow_v1_artifact_proto_rawDescData
+	return file_artifacta_v1_artifact_proto_rawDescData
 }
 
-var file_herenow_v1_artifact_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_herenow_v1_artifact_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
-var file_herenow_v1_artifact_proto_goTypes = []any{
-	(Visibility)(0),               // 0: herenow.v1.Visibility
-	(*Identity)(nil),              // 1: herenow.v1.Identity
-	(*Artifact)(nil),              // 2: herenow.v1.Artifact
-	(*ArtifactVersion)(nil),       // 3: herenow.v1.ArtifactVersion
-	(*Grant)(nil),                 // 4: herenow.v1.Grant
-	(*Comment)(nil),               // 5: herenow.v1.Comment
-	(*TextAnchor)(nil),            // 6: herenow.v1.TextAnchor
+var file_artifacta_v1_artifact_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_artifacta_v1_artifact_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_artifacta_v1_artifact_proto_goTypes = []any{
+	(Visibility)(0),               // 0: artifacta.v1.Visibility
+	(*Identity)(nil),              // 1: artifacta.v1.Identity
+	(*Artifact)(nil),              // 2: artifacta.v1.Artifact
+	(*ArtifactVersion)(nil),       // 3: artifacta.v1.ArtifactVersion
+	(*Grant)(nil),                 // 4: artifacta.v1.Grant
+	(*Comment)(nil),               // 5: artifacta.v1.Comment
+	(*TextAnchor)(nil),            // 6: artifacta.v1.TextAnchor
 	(*timestamppb.Timestamp)(nil), // 7: google.protobuf.Timestamp
 }
-var file_herenow_v1_artifact_proto_depIdxs = []int32{
-	0, // 0: herenow.v1.Artifact.visibility:type_name -> herenow.v1.Visibility
-	7, // 1: herenow.v1.Artifact.created_at:type_name -> google.protobuf.Timestamp
-	7, // 2: herenow.v1.ArtifactVersion.created_at:type_name -> google.protobuf.Timestamp
-	7, // 3: herenow.v1.Grant.created_at:type_name -> google.protobuf.Timestamp
-	7, // 4: herenow.v1.Comment.created_at:type_name -> google.protobuf.Timestamp
-	6, // 5: herenow.v1.Comment.anchor:type_name -> herenow.v1.TextAnchor
+var file_artifacta_v1_artifact_proto_depIdxs = []int32{
+	0, // 0: artifacta.v1.Artifact.visibility:type_name -> artifacta.v1.Visibility
+	7, // 1: artifacta.v1.Artifact.created_at:type_name -> google.protobuf.Timestamp
+	7, // 2: artifacta.v1.ArtifactVersion.created_at:type_name -> google.protobuf.Timestamp
+	7, // 3: artifacta.v1.Grant.created_at:type_name -> google.protobuf.Timestamp
+	7, // 4: artifacta.v1.Comment.created_at:type_name -> google.protobuf.Timestamp
+	6, // 5: artifacta.v1.Comment.anchor:type_name -> artifacta.v1.TextAnchor
 	6, // [6:6] is the sub-list for method output_type
 	6, // [6:6] is the sub-list for method input_type
 	6, // [6:6] is the sub-list for extension type_name
@@ -700,27 +697,27 @@ var file_herenow_v1_artifact_proto_depIdxs = []int32{
 	0, // [0:6] is the sub-list for field type_name
 }
 
-func init() { file_herenow_v1_artifact_proto_init() }
-func file_herenow_v1_artifact_proto_init() {
-	if File_herenow_v1_artifact_proto != nil {
+func init() { file_artifacta_v1_artifact_proto_init() }
+func file_artifacta_v1_artifact_proto_init() {
+	if File_artifacta_v1_artifact_proto != nil {
 		return
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_herenow_v1_artifact_proto_rawDesc), len(file_herenow_v1_artifact_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_artifacta_v1_artifact_proto_rawDesc), len(file_artifacta_v1_artifact_proto_rawDesc)),
 			NumEnums:      1,
 			NumMessages:   6,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
-		GoTypes:           file_herenow_v1_artifact_proto_goTypes,
-		DependencyIndexes: file_herenow_v1_artifact_proto_depIdxs,
-		EnumInfos:         file_herenow_v1_artifact_proto_enumTypes,
-		MessageInfos:      file_herenow_v1_artifact_proto_msgTypes,
+		GoTypes:           file_artifacta_v1_artifact_proto_goTypes,
+		DependencyIndexes: file_artifacta_v1_artifact_proto_depIdxs,
+		EnumInfos:         file_artifacta_v1_artifact_proto_enumTypes,
+		MessageInfos:      file_artifacta_v1_artifact_proto_msgTypes,
 	}.Build()
-	File_herenow_v1_artifact_proto = out.File
-	file_herenow_v1_artifact_proto_goTypes = nil
-	file_herenow_v1_artifact_proto_depIdxs = nil
+	File_artifacta_v1_artifact_proto = out.File
+	file_artifacta_v1_artifact_proto_goTypes = nil
+	file_artifacta_v1_artifact_proto_depIdxs = nil
 }

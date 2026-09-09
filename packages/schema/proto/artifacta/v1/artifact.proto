@@ -1,10 +1,10 @@
 syntax = "proto3";
 
-package herenow.v1;
+package artifacta.v1;
 
 import "google/protobuf/timestamp.proto";
 
-option go_package = "github.com/agarwalvivek29/here.now/packages/schema/generated/go/herenow/v1;herenowv1";
+option go_package = "github.com/agarwalvivek29/here.now/packages/schema/generated/go/artifacta/v1;artifactav1";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // here.now core domain — artifacts and access grants.

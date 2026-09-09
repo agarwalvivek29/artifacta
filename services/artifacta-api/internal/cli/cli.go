@@ -32,7 +32,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-const usage = `here.now — self-hostable host for AI-generated artifacts
+const usage = `artifacta — self-hostable host for AI-generated artifacts
 
 Usage:
   artifacta login             set up your local identity + session token
@@ -177,7 +177,7 @@ func loginOIDC(c config.Config) error {
 			resCh <- loginResult{err: err}
 			return
 		}
-		fmt.Fprintln(w, "here.now login complete — you can close this tab.")
+		fmt.Fprintln(w, "artifacta login complete — you can close this tab.")
 		resCh <- loginResult{idToken: raw, sub: sub, email: email}
 	})
 
@@ -684,6 +684,6 @@ func serve() error {
 		srv.Auth = &api.Local{Token: c.Token, ID: c.Identity()}
 		fmt.Printf("auth: local single-token adapter\n")
 	}
-	fmt.Printf("here.now serving on %s  (base URL %s)\n", c.Addr, c.BaseURL)
+	fmt.Printf("artifacta serving on %s  (base URL %s)\n", c.Addr, c.BaseURL)
 	return http.ListenAndServe(c.Addr, srv.Routes())
 }

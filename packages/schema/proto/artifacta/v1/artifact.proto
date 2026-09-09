@@ -1,0 +1,104 @@
+syntax = "proto3";
+
+package artifacta.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/agarwalvivek29/here.now/packages/schema/generated/go/artifacta/v1;artifactav1";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// here.now core domain — artifacts and access grants.
+// Schema-first: these generated types are the ONLY definition of these concepts.
+// The service imports them; it never redefines an Artifact/Grant/Visibility.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Visibility controls who may view an artifact. Private is the default.
+enum Visibility {
+  VISIBILITY_UNSPECIFIED = 0;
+  VISIBILITY_PRIVATE = 1; // owner only (default)
+  VISIBILITY_INVITED = 2; // owner + explicitly invited subjects
+  VISIBILITY_ORG = 3;     // any authenticated user (optionally group-scoped)
+}
+
+// Identity is a verified principal. Sub is the immutable subject id (OIDC `sub`
+// or local user id). Grants bind to Sub, never to a mutable email.
+message Identity {
+  string sub = 1;
+  string email = 2;
+}
+
+// Artifact is the container for one published document. It holds the metadata
+// shared across versions (slug, owner, title, visibility) and points at the most
+// recently appended version. Bundle bytes for each version live in the blob
+// store, keyed by (slug, n); this is what the metadata store persists.
+message Artifact {
+  string slug = 1;
+  string owner_sub = 2;
+  string title = 3;
+  Visibility visibility = 4;
+  string content_type = 5;
+  google.protobuf.Timestamp created_at = 6;
+  // latest_version is the highest version number that exists for this artifact
+  // (1-based). /a/{slug}/raw serves this version.
+  int32 latest_version = 7;
+}
+
+// ArtifactVersion is one immutable revision of an artifact's bundle. Versions are
+// never mutated or deleted in normal operation: publishing an update appends a
+// new version rather than overwriting. Access is per-artifact (versions inherit
+// the artifact's visibility/grants), so a version carries no visibility of its
+// own. See ADR-0013.
+message ArtifactVersion {
+  string slug = 1;
+  // n is the 1-based version number, unique and ascending within a slug.
+  int32 n = 2;
+  string content_type = 3;
+  google.protobuf.Timestamp created_at = 4;
+  string created_by = 5;
+  string note = 6;
+}
+
+// Grant is one invitee's access to one artifact (the many-to-many relation).
+message Grant {
+  string slug = 1;
+  string grantee_sub = 2;
+  string granted_by = 3;
+  google.protobuf.Timestamp created_at = 4;
+}
+
+// Comment is one piece of review feedback on an artifact, pinned to the version
+// it was made on (ADR-0014). Anyone who can view the artifact may comment; only
+// the owner resolves. Comments are collaboration content, NOT access-control
+// events, so they are never written to the hash-chained audit trail. The body is
+// user content and MUST be rendered as text (never innerHTML) in the viewer.
+message Comment {
+  string id = 1;
+  string slug = 2;
+  int32 version = 3;
+  string author_sub = 4;
+  string author_email = 5;
+  google.protobuf.Timestamp created_at = 6;
+  string body = 7;
+  bool resolved = 8;
+  // Optional text anchor (ADR-0015). When set, the comment is anchored to a span
+  // of the artifact's text; when unset, it is a page-level note. Because version
+  // content is immutable, an anchor made on a version stays valid on it forever.
+  TextAnchor anchor = 9;
+  // Optional parent comment id (ADR-0016). Empty = a root comment (a thread); set
+  // = a reply within that thread. Replies inherit the root's version, are never
+  // anchored, and are not resolved individually (the root resolves the thread).
+  string parent_id = 10;
+}
+
+// TextAnchor locates a comment against a span of an artifact's rendered text
+// (ADR-0015), W3C-annotation style: a content quote (never a DOM path), a little
+// surrounding context to disambiguate repeats, and a character-offset fast path.
+// It is display metadata resolved client-side in the sandboxed viewer; the server
+// stores it verbatim and never trusts it for authorization.
+message TextAnchor {
+  string quote = 1;   // the exact selected text
+  string prefix = 2;  // a few characters immediately before the quote
+  string suffix = 3;  // a few characters immediately after the quote
+  int32 start = 4;    // char offset of the quote into the document's text content
+  int32 end = 5;      // char offset just past the quote
+}

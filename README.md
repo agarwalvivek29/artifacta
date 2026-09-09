@@ -1,9 +1,14 @@
-# here.now
+# ArtifactA
 
 **Self-hostable host for AI-generated artifacts.** Publish an artifact your AI assistant
 generated (an HTML page, report, dashboard) and get an **access-controlled link on
 infrastructure you own** — instead of a share link on a third-party vendor's cloud.
 Storage, access control, and an inbuilt audit trail all stay on infra you control.
+
+> **Naming:** the product, the CLI binary (`artifacta`), the service (`artifacta-api`), the
+> proto package (`artifacta.v1`), and env vars (`ARTIFACTA_HOME`) are all **artifacta**. The one
+> remaining exception is the Git repo / Go module base, still `github.com/agarwalvivek29/here.now`
+> — renaming that requires renaming the GitHub repository itself (a separate step, not yet done).
 
 See [PRODUCT.md](PRODUCT.md) for the product, [ARCHITECTURE.md](ARCHITECTURE.md) for the
 technical design.
@@ -16,7 +21,7 @@ A monorepo with built-in guardrails for controlled, spec-driven, agentic develop
 
 ```
 apps/          Frontend apps (the artifact-runtime viewer fork — later phase)
-services/      Backend services — herenow-api (Go): publish, viewer, RBAC, audit
+services/      Backend services — artifacta-api (Go): publish, viewer, RBAC, audit
 packages/      Shared libraries — schema/ (protobuf domain types, generated to Go)
 infra/         Local dev infrastructure (docker-compose)
 docs/          PRODUCT, ARCHITECTURE, specs, ADRs, conventions, core rules
@@ -32,11 +37,11 @@ scripts/       Scaffold and utility scripts
 pnpm install
 
 # Build + run the wedge (single binary, file store, zero external deps)
-cd services/herenow-api
-go build -o /tmp/herenow ./cmd/herenow
-HERENOW_HOME=~/.herenow /tmp/herenow login
-/tmp/herenow serve &                 # viewer on http://localhost:8080
-/tmp/herenow publish ./some-artifact.html
+cd services/artifacta-api
+go build -o /tmp/artifacta ./cmd/artifacta
+ARTIFACTA_HOME=~/.artifacta /tmp/artifacta login
+/tmp/artifacta serve &                 # viewer on http://localhost:8080
+/tmp/artifacta publish ./some-artifact.html
 # open the printed /a/{slug} link; visit the login?token=… URL once to set the cookie
 ```
 

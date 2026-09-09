@@ -21,7 +21,7 @@ specific revision — feedback on v1 shouldn't look like feedback on v3 — whic
 
 Add a `Comment` type and a view-gated comment API.
 
-- **Type** (schema-first, `packages/schema/proto/herenow/v1`):
+- **Type** (schema-first, `packages/schema/proto/artifacta/v1`):
   `Comment { id, slug, version, author_sub, author_email, created_at, body, resolved }`.
 - **Version-pinned**: a comment records the version it was made on. The viewer shows the
   comments for the version currently being viewed.

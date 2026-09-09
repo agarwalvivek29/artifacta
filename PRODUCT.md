@@ -1,11 +1,11 @@
-# Product — here.now
+# Product — ArtifactA
 
 > The product source of truth. Agents read this to understand _what_ is being built
 > and _why_, before deciding _how_.
 
 ## Vision
 
-We are building here.now so that **teams can share AI-generated artifacts that contain
+We are building ArtifactA so that **teams can share AI-generated artifacts that contain
 sensitive data** without handing storage, access control, or audit of that data to a
 third-party vendor.
 
@@ -16,7 +16,7 @@ that routinely contain sensitive data: customer PII, internal analytics, credent
 dashboards. Today those artifacts are persisted on and served from a third-party vendor's
 infrastructure (share links, hosted CDNs). For any team with a compliance posture, that
 is an ungoverned dependency: the data lives, is served, and is (not) audited on infra they
-do not control. here.now removes the **persistence + sharing** dependency — the artifact
+do not control. ArtifactA removes the **persistence + sharing** dependency — the artifact
 lives, is access-controlled, audited, and expired entirely on infra the operator controls.
 
 **Key insight (do not overstate):** generation-time content still passes through whatever
@@ -36,7 +36,7 @@ third-party infra," not "PII never touches the vendor."
 
 ## Core Features (v1 Must Have)
 
-- **Publish → access-controlled link** (effort: M): `herenow publish <file>` → private-by-
+- **Publish → access-controlled link** (effort: M): `artifacta publish <file>` → private-by-
   default link on infra you own. Trigger: user/agent runs it. Success: a `/a/{slug}` link
   that only authorized viewers can open.
 - **Private-by-default RBAC** (effort: M): private / invited / org visibility; the
@@ -48,7 +48,7 @@ third-party infra," not "PII never touches the vendor."
 
 ## v1 Complete (Should Have)
 
-- `herenow share` + owner Share UI (invite by email/subject, org visibility).
+- `artifacta share` + owner Share UI (invite by email/subject, org visibility).
 - Pluggable auth adapters: generic OIDC (any issuer) + trusted forward-auth header.
 
 ## v2 and Beyond (Could Have)
@@ -67,7 +67,7 @@ third-party infra," not "PII never touches the vendor."
 
 - Time-to-first-shared-link < ~2 minutes (install → login → publish → link).
 - Render quality: common artifacts (reports, dashboards) render indistinguishably from the vendor viewer.
-- At least one team replaces vendor share links with here.now links for sensitive content.
+- At least one team replaces vendor share links with ArtifactA links for sensitive content.
 
 ## Roadmap
 

@@ -8,7 +8,7 @@ description: >
   (null-origin iframe, strict CSP, no host runtime, single file) and compliant with its
   data-governance rules (no phone-home). Fires on: "publish to ArtifactA / here.now",
   "make/build an artifact, page, report, or dashboard to host on ArtifactA", or right
-  before `herenow publish`. This is ArtifactA's equivalent of Claude's /artifact-design.
+  before `artifacta publish`. This is ArtifactA's equivalent of Claude's /artifact-design.
 ---
 
 # artifacta-design — design artifacts worth hosting
@@ -164,7 +164,7 @@ that phones home defeats the entire product.
 
 ---
 
-## Pre-publish checklist (run before `herenow publish`)
+## Pre-publish checklist (run before `artifacta publish`)
 
 - [ ] Treatment calibrated to the content; not the LLM default.
 - [ ] Type system + chosen palette + both themes present; scans cleanly at 360px.
@@ -175,4 +175,4 @@ that phones home defeats the entire product.
 - [ ] Single self-contained file; body sets an explicit background; keyboard focus is visible.
 - [ ] Real content throughout; confidentiality marked if the data warrants it.
 
-Then publish: `herenow publish <file>` (see the `artifacta-publish` skill).
+Then publish: `artifacta publish <file>` (see the `artifacta-publish` skill).

@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+package artifacta.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/agarwalvivek29/here.now/packages/schema/generated/go/artifacta/v1;artifactav1";
+
+// AuditAction is the kind of access-control event recorded in the inbuilt trail.
+enum AuditAction {
+  AUDIT_ACTION_UNSPECIFIED = 0;
+  AUDIT_ACTION_PUBLISH = 1;
+  AUDIT_ACTION_VIEW = 2;
+  AUDIT_ACTION_SHARE = 3;
+  AUDIT_ACTION_DENY = 4;
+}
+
+// AuditEvent is one row of the inbuilt, append-only, hash-chained audit trail.
+// Written on the authorization path into the app's own store — never emitted to
+// an external logging/observability system.
+message AuditEvent {
+  int64 seq = 1;
+  google.protobuf.Timestamp ts = 2;
+  string principal_sub = 3;
+  string slug = 4;
+  AuditAction action = 5;
+  bool allowed = 6;
+  string prev_hash = 7;
+  string hash = 8;
+}

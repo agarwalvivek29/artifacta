@@ -4,7 +4,7 @@ version: v2
 # Buf code generation for here.now.
 #
 # here.now generates Go only: the sole consumer of the domain schema is the Go
-# service (services/herenow-api). The viewer (apps/) renders opaque artifact
+# service (services/artifacta-api). The viewer (apps/) renders opaque artifact
 # bytes and shares no domain types, so TS/Python/Rust bindings are intentionally
 # omitted. Add a language plugin here the moment a second-language consumer exists.
 #

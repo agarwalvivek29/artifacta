@@ -94,7 +94,7 @@ jobs:
       # source makes the tool's Go version match the toolchain. Run from the module
       # dir (./... doesn't resolve from the non-module workspace root).
       - name: golangci-lint
-        working-directory: services/herenow-api
+        working-directory: services/artifacta-api
         run: |
           go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
           golangci-lint run ./...
@@ -175,10 +175,10 @@ jobs:
       # Run from the module dir: `./...` doesn't resolve from the workspace root
       # (which isn't itself a module), and tests/e2e lives under the module.
       - name: Run unit tests
-        working-directory: services/herenow-api
+        working-directory: services/artifacta-api
         run: go test ./... -v -short
       - name: Run e2e tests
-        working-directory: services/herenow-api
+        working-directory: services/artifacta-api
         run: go test ./tests/e2e/... -v -timeout 120s
 
   # ─── Test: Rust ───────────────────────────────────────────────────────────

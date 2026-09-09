@@ -56,13 +56,13 @@ skippable for **[su]**.
 
 ## Scope C — Sharing / RBAC
 
-| #   | Task                                                                         | Size | Status |
-| --- | ---------------------------------------------------------------------------- | ---- | ------ |
-| C1  | `POST /publish` API endpoint (so a remote/OIDC CLI can publish)              | M    | 🔴     |
-| C2  | `herenow share` + `POST /share` grant creation — unblocks INVITED end-to-end | M    | 🔴     |
-| C3  | Owner Share UI                                                               | M    | 🟡     |
-| C4  | Set-visibility endpoint (private / invited / org)                            | S    | 🟡     |
-| C5  | Grant revoke                                                                 | S    | 🟡     |
+| #   | Task                                                                           | Size | Status |
+| --- | ------------------------------------------------------------------------------ | ---- | ------ |
+| C1  | `POST /publish` API endpoint (so a remote/OIDC CLI can publish)                | M    | 🔴     |
+| C2  | `artifacta share` + `POST /share` grant creation — unblocks INVITED end-to-end | M    | 🔴     |
+| C3  | Owner Share UI                                                                 | M    | 🟡     |
+| C4  | Set-visibility endpoint (private / invited / org)                              | S    | 🟡     |
+| C5  | Grant revoke                                                                   | S    | 🟡     |
 
 ## Scope D — Dashboard ("my artifacts")
 

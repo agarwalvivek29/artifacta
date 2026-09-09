@@ -11,7 +11,7 @@
 
 An artifact's bytes are stored as one opaque blob (`blobs/{slug}.bundle`) and served at
 `/a/{slug}/raw`. The blob store and `ARCHITECTURE.md` already call this a "bundle",
-anticipating multiple files, but v0 stores exactly one file (`herenow publish <file>`).
+anticipating multiple files, but v0 stores exactly one file (`artifacta publish <file>`).
 
 Real artifacts can be multi-file (an `index.html` plus `assets/*.js`, `*.css`, images).
 The question was whether to build multi-file support now, and if so, how — without

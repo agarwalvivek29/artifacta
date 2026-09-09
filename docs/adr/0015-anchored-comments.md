@@ -64,7 +64,7 @@ message Comment { ... existing ... ; TextAnchor anchor = 9; }
 
 At serve time (`serveVersion`), append a small, self-contained `<script>` to the bundle before it
 is handed to the iframe. It is the **only** code that can see the selection, because it runs
-inside the null-origin document. Protocol (all messages carry a `source:"herenow"` tag; the parent
+inside the null-origin document. Protocol (all messages carry a `source:"artifacta"` tag; the parent
 validates shape and **never trusts them for authorization** — see Security):
 
 - iframe → parent `hn-selection`: `{ quote, prefix, suffix, start, end, rect }` on select; `rect`

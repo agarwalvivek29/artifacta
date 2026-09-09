@@ -43,6 +43,6 @@ user-facing auth model.
 
 - Divergence from CORE_RULES Rule 10's default is intentional and recorded here (Rule 2:
   exceptions must live in an ADR).
-- `packages/schema/proto/herenow/v1` defines `Identity`; the service imports it (schema-first).
+- `packages/schema/proto/artifacta/v1` defines `Identity`; the service imports it (schema-first).
 - New viewer routes must pass through the `Provider` + `CanView`; never add an unauthenticated
   content route.

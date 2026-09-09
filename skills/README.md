@@ -11,4 +11,4 @@ others) working with a self-hosted ArtifactA (`here.now`) instance.
   finished artifact to the instance and get a private link. A thin wrapper over the CLI/REST
   publish path ([ADR-0012](../docs/adr/0012-assistant-agnostic-publish-surfaces.md)).
 
-Typical flow: **design with `artifacta-design` → `herenow publish` via `artifacta-publish`.**
+Typical flow: **design with `artifacta-design` → `artifacta publish` via `artifacta-publish`.**

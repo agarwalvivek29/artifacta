@@ -102,7 +102,7 @@ sign-in · render-parity pipeline (esbuild, increment 1) · end-to-end flow test
   Proven live: posted a reply through the UI on the cohort report; thread refreshed in place.
 - **CI pipeline repair** (PR #21 + #20) — the Go CI had gone red repo-wide (env drift; also red on
   main's head) and had in fact never run golangci successfully. Fixed: run go from
-  `services/herenow-api` (the workspace root isn't a module); adopt **golangci-lint v2** (v1's
+  `services/artifacta-api` (the workspace root isn't a module); adopt **golangci-lint v2** (v1's
   type-checker can't read go 1.27 export data) installed from source; add `.golangci.yml`
   (std-error-handling preset) + clear the 2 real findings it surfaced; replace the unresolvable
   commitlint action with a direct `npx commitlint` run. main CI now green (lint-go + test-go).

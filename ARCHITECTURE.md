@@ -1,11 +1,11 @@
-# Architecture — here.now
+# Architecture — ArtifactA
 
 > The technical source of truth. Update when architecture changes; reference in every ADR.
 
 ## System Overview
 
-here.now is a self-hostable host for AI-generated artifacts. A single Go binary
-(`herenow`) provides both the CLI (`publish`/`login`/`ls`) and the viewer server
+ArtifactA is a self-hostable host for AI-generated artifacts. A single Go binary
+(`artifacta`) provides both the CLI (`publish`/`login`/`ls`) and the viewer server
 (`serve`). Artifacts are stored as opaque bundles in a blob store the operator controls;
 metadata, grants, and an inbuilt hash-chained audit trail live in the operator's own
 store. Every view passes the app's own authorization decision before any bytes are served.
@@ -16,9 +16,9 @@ boundary.
 
 ## Service Map
 
-| Service       | Language | Type       | Responsibility                                                   | Primary DB                 | Queue |
-| ------------- | -------- | ---------- | ---------------------------------------------------------------- | -------------------------- | ----- |
-| `herenow-api` | Go       | REST + CLI | Publish, authorization-gated viewer serving, RBAC, inbuilt audit | File store (v0) → Postgres | —     |
+| Service         | Language | Type       | Responsibility                                                   | Primary DB                 | Queue |
+| --------------- | -------- | ---------- | ---------------------------------------------------------------- | -------------------------- | ----- |
+| `artifacta-api` | Go       | REST + CLI | Publish, authorization-gated viewer serving, RBAC, inbuilt audit | File store (v0) → Postgres | —     |
 
 Frontend: v0 embeds a minimal sandboxed-iframe viewer in the binary; a forked
 artifact-runtime lands in `apps/` for render parity (v2).
@@ -26,10 +26,10 @@ artifact-runtime lands in `apps/` for render parity (v2).
 ## Data Flow
 
 ```
-[AI assistant / human] ── herenow publish ──▶ herenow-api (CLI path)
+[AI assistant / human] ── artifacta publish ──▶ artifacta-api (CLI path)
                                                  │ write bytes → BlobStore (fs)
                                                  │ write metadata → Store (file)  + audit
-[Viewer / recipient] ── GET /a/{slug} ─────────▶ herenow-api (HTTP)
+[Viewer / recipient] ── GET /a/{slug} ─────────▶ artifacta-api (HTTP)
                           GET /a/{slug}/raw ────▶ Auth.Identify → domain.CanView
                                                    allow → BlobStore.Get → stream + audit(view)
                                                    deny  → 404 + audit(deny)   (fails closed)
@@ -37,11 +37,11 @@ artifact-runtime lands in `apps/` for render parity (v2).
 
 ## Core Domain Model
 
-| Entity     | Proto file                                        | Key fields                                           | Lifecycle                                   | Events                |
-| ---------- | ------------------------------------------------- | ---------------------------------------------------- | ------------------------------------------- | --------------------- |
-| Artifact   | `packages/schema/proto/herenow/v1/artifact.proto` | slug, owner_sub, visibility, content_type            | visibility: PRIVATE→INVITED→ORG (owner-set) | audit: PUBLISH / VIEW |
-| Grant      | `packages/schema/proto/herenow/v1/artifact.proto` | slug, grantee_sub (immutable), granted_by            | created / revoked                           | audit: SHARE          |
-| AuditEvent | `packages/schema/proto/herenow/v1/audit.proto`    | seq, principal_sub, action, allowed, prev_hash, hash | append-only hash chain                      | —                     |
+| Entity     | Proto file                                          | Key fields                                           | Lifecycle                                   | Events                |
+| ---------- | --------------------------------------------------- | ---------------------------------------------------- | ------------------------------------------- | --------------------- |
+| Artifact   | `packages/schema/proto/artifacta/v1/artifact.proto` | slug, owner_sub, visibility, content_type            | visibility: PRIVATE→INVITED→ORG (owner-set) | audit: PUBLISH / VIEW |
+| Grant      | `packages/schema/proto/artifacta/v1/artifact.proto` | slug, grantee_sub (immutable), granted_by            | created / revoked                           | audit: SHARE          |
+| AuditEvent | `packages/schema/proto/artifacta/v1/audit.proto`    | seq, principal_sub, action, allowed, prev_hash, hash | append-only hash chain                      | —                     |
 
 All domain types are schema-first (Rule 12): defined in proto, generated to Go, imported
 by the service — never redefined in service code.
@@ -59,7 +59,7 @@ by the service — never redefined in service code.
 
 ## Auth Strategy
 
-here.now **diverges** from the template's JWT + shared-API-key default — see
+ArtifactA **diverges** from the template's JWT + shared-API-key default — see
 [ADR 0002](docs/adr/0002-auth-model.md). It uses a pluggable identity `Provider`
 (local now; OIDC + trusted-forward-auth later) and makes the **per-artifact** decision
 (`domain.CanView`) in the app. Identity is never client-asserted; grants bind to the

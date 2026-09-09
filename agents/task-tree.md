@@ -37,7 +37,7 @@ graph TD
   B1 --> D3[D3 login page]
   B1 --> D2[D2 dashboard]
   B3 --> C1[C1 publish API]
-  C1 --> C2[C2 herenow share]
+  C1 --> C2[C2 artifacta share]
   D1[D1 ListVisibleTo] --> D2
   C2 --> C3[C3 Share UI]
   D2 --> C3

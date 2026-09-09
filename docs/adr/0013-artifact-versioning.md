@@ -22,7 +22,7 @@ now pulled in as foundational, ahead of comments (which pin to a version).
 
 Model an artifact as a **container with an ordered list of immutable versions**.
 
-- **Types** (schema-first, `packages/schema/proto/herenow/v1`):
+- **Types** (schema-first, `packages/schema/proto/artifacta/v1`):
   - `Artifact` gains `int32 latest_version`. It stays the container: slug, owner, title,
     visibility, latest_version.
   - New `ArtifactVersion { slug, n (1-based), content_type, created_at, created_by, note }`.
@@ -32,7 +32,7 @@ Model an artifact as a **container with an ordered list of immutable versions**.
 - **Publish semantics** (explicit update, chosen over auto/overwrite):
   - `POST /artifacts` (new artifact) creates version **1**.
   - `POST /artifacts/{slug}/versions` (owner-only) appends version **n+1**; CLI surface is
-    `herenow publish --update <slug> <file>`. Nothing is overwritten.
+    `artifacta publish --update <slug> <file>`. Nothing is overwritten.
   - Each version append writes a `PUBLISH` audit event.
 - **Serving**: `/a/{slug}/raw` serves the **latest** version; `/a/{slug}/v/{n}/raw` serves a
   specific version. Both pass the identical `CanView` gate — versions inherit the artifact's

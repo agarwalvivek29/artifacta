@@ -52,7 +52,7 @@ by the service — never redefined in service code.
 | ------- | -------------------------------------------- | ------------------------------------------------------------------------------------ |
 | Backend | Go                                           | Single static binary, trivial self-host, low footprint; excellent for a CLI + server |
 | Schema  | Protobuf + buf (Go codegen)                  | Single source of truth for domain types                                              |
-| Store   | File (v0) → PostgreSQL                       | Relational many-to-many for grants + "shared with me"; file store for zero-dep local |
+| Store   | File or PostgreSQL (`ARTIFACTA_STORE`)       | Deployer's choice: zero-dep file store, or GORM/Postgres (auto-migrating) for scale  |
 | Blob    | Filesystem (v0) → S3-compatible              | Operator-controlled bundle storage                                                   |
 | Viewer  | Embedded HTML (v0) → forked artifact-runtime | Render parity with the vendor viewer                                                 |
 | Infra   | Docker Compose (default) → Helm              | Self-host simplicity first                                                           |
@@ -82,6 +82,7 @@ immutable subject. Exempt paths: `GET /health`, `GET /metrics`.
 | ------------------------------------------------------- | ----------------------------------------------------------------------------------------- | -------- |
 | [0001](docs/adr/0001-monorepo-structure.md)             | Monorepo with per-service isolation                                                       | Accepted |
 | [0002](docs/adr/0002-auth-model.md)                     | Pluggable OIDC/local/forward-auth + per-artifact RBAC (diverges from JWT+API-key default) | Accepted |
+| [0009](docs/adr/0009-postgres-store-adapter.md)         | Selectable file/Postgres store (GORM, auto-migrating; label UNIQUE constraint)            | Accepted |
 | [0017](docs/adr/0017-subdomain-artifact-addressing.md)  | Subdomain artifact addressing (`{slug\|label}.{root}`), host-router rewrite               | Accepted |
 | [0018](docs/adr/0018-anonymous-vpn-gated-visibility.md) | Anonymous, VPN-gated `LINK` visibility (the one `CanView` carve-out)                      | Accepted |
 | [0019](docs/adr/0019-invite-by-email-grants.md)         | Invite-by-email grants (email or subject; verified email matched in `CanView`)            | Accepted |

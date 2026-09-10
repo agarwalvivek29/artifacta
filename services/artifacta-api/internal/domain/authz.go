@@ -37,9 +37,18 @@ func CanView(a *artifactav1.Artifact, who *artifactav1.Identity, grants []*artif
 		return true // any authenticated user; group scoping arrives with OIDC
 	case artifactav1.Visibility_VISIBILITY_INVITED:
 		for _, g := range grants {
-			// Match grantee AND slug: defense-in-depth so the decision holds
-			// even if the caller passes an unfiltered grants list.
-			if g.GetGranteeSub() == who.GetSub() && g.GetSlug() == a.GetSlug() {
+			if g.GetSlug() != a.GetSlug() {
+				continue // slug scope: defense-in-depth against an unfiltered list
+			}
+			// A grant matches by immutable subject, or by verified email when the
+			// invite was addressed to an email (ADR-0019). Email is compared
+			// case-insensitively and only when the caller actually carries one, so
+			// an empty grantee_email can never match an empty caller email.
+			if g.GetGranteeSub() != "" && g.GetGranteeSub() == who.GetSub() {
+				return true
+			}
+			if g.GetGranteeEmail() != "" && who.GetEmail() != "" &&
+				strings.EqualFold(g.GetGranteeEmail(), who.GetEmail()) {
 				return true
 			}
 		}

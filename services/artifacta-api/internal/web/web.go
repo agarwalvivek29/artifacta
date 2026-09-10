@@ -34,15 +34,21 @@ type ArtifactView struct {
 	Title      string
 	Visibility string
 	Version    int32
+	// IsOwner marks the caller's own artifacts (the Mine section), which get the
+	// owner-only Share control. False for Shared-with-me and Org cards.
+	IsOwner bool
 }
 
 // DashboardData is the view model for the authenticated dashboard, grouping the
-// caller's artifacts into the three FR18 sections.
+// caller's artifacts into the three FR18 sections. OrgName/LogoURL brand the
+// navbar (cosmetic; empty falls back to the ArtifactA wordmark).
 type DashboardData struct {
-	Email  string
-	Mine   []ArtifactView
-	Shared []ArtifactView
-	Org    []ArtifactView
+	Email   string
+	OrgName string
+	LogoURL string
+	Mine    []ArtifactView
+	Shared  []ArtifactView
+	Org     []ArtifactView
 }
 
 // RenderDashboard writes the authenticated dashboard for data to w.

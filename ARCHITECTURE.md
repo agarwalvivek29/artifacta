@@ -84,3 +84,4 @@ immutable subject. Exempt paths: `GET /health`, `GET /metrics`.
 | [0002](docs/adr/0002-auth-model.md)                     | Pluggable OIDC/local/forward-auth + per-artifact RBAC (diverges from JWT+API-key default) | Accepted |
 | [0017](docs/adr/0017-subdomain-artifact-addressing.md)  | Subdomain artifact addressing (`{slug\|label}.{root}`), host-router rewrite               | Accepted |
 | [0018](docs/adr/0018-anonymous-vpn-gated-visibility.md) | Anonymous, VPN-gated `LINK` visibility (the one `CanView` carve-out)                      | Accepted |
+| [0019](docs/adr/0019-invite-by-email-grants.md)         | Invite-by-email grants (email or subject; verified email matched in `CanView`)            | Accepted |

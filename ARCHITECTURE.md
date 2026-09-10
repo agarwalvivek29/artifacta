@@ -37,11 +37,11 @@ artifact-runtime lands in `apps/` for render parity (v2).
 
 ## Core Domain Model
 
-| Entity     | Proto file                                          | Key fields                                           | Lifecycle                                   | Events                |
-| ---------- | --------------------------------------------------- | ---------------------------------------------------- | ------------------------------------------- | --------------------- |
-| Artifact   | `packages/schema/proto/artifacta/v1/artifact.proto` | slug, owner_sub, visibility, content_type            | visibility: PRIVATE→INVITED→ORG (owner-set) | audit: PUBLISH / VIEW |
-| Grant      | `packages/schema/proto/artifacta/v1/artifact.proto` | slug, grantee_sub (immutable), granted_by            | created / revoked                           | audit: SHARE          |
-| AuditEvent | `packages/schema/proto/artifacta/v1/audit.proto`    | seq, principal_sub, action, allowed, prev_hash, hash | append-only hash chain                      | —                     |
+| Entity     | Proto file                                          | Key fields                                           | Lifecycle                                                                              | Events                |
+| ---------- | --------------------------------------------------- | ---------------------------------------------------- | -------------------------------------------------------------------------------------- | --------------------- |
+| Artifact   | `packages/schema/proto/artifacta/v1/artifact.proto` | slug, owner_sub, visibility, content_type            | visibility: PRIVATE→INVITED→ORG→LINK (owner-set; LINK = no-login, VPN-gated, ADR-0018) | audit: PUBLISH / VIEW |
+| Grant      | `packages/schema/proto/artifacta/v1/artifact.proto` | slug, grantee_sub (immutable), granted_by            | created / revoked                                                                      | audit: SHARE          |
+| AuditEvent | `packages/schema/proto/artifacta/v1/audit.proto`    | seq, principal_sub, action, allowed, prev_hash, hash | append-only hash chain                                                                 | —                     |
 
 All domain types are schema-first (Rule 12): defined in proto, generated to Go, imported
 by the service — never redefined in service code.
@@ -78,7 +78,9 @@ immutable subject. Exempt paths: `GET /health`, `GET /metrics`.
 
 ## Key ADRs
 
-| ADR                                         | Decision                                                                                  | Status   |
-| ------------------------------------------- | ----------------------------------------------------------------------------------------- | -------- |
-| [0001](docs/adr/0001-monorepo-structure.md) | Monorepo with per-service isolation                                                       | Accepted |
-| [0002](docs/adr/0002-auth-model.md)         | Pluggable OIDC/local/forward-auth + per-artifact RBAC (diverges from JWT+API-key default) | Accepted |
+| ADR                                                     | Decision                                                                                  | Status   |
+| ------------------------------------------------------- | ----------------------------------------------------------------------------------------- | -------- |
+| [0001](docs/adr/0001-monorepo-structure.md)             | Monorepo with per-service isolation                                                       | Accepted |
+| [0002](docs/adr/0002-auth-model.md)                     | Pluggable OIDC/local/forward-auth + per-artifact RBAC (diverges from JWT+API-key default) | Accepted |
+| [0017](docs/adr/0017-subdomain-artifact-addressing.md)  | Subdomain artifact addressing (`{slug\|label}.{root}`), host-router rewrite               | Accepted |
+| [0018](docs/adr/0018-anonymous-vpn-gated-visibility.md) | Anonymous, VPN-gated `LINK` visibility (the one `CanView` carve-out)                      | Accepted |

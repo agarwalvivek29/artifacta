@@ -46,7 +46,8 @@ audited, and expired entirely on infrastructure the operator owns.
 ## What it does
 
 - 🚀 **One-command publish** — `artifacta publish <file>` returns a private link. Time-to-first-shared-link < ~2 min.
-- 🔒 **Private by default** — every artifact is owner-only until you share it. Visibility: `PRIVATE` → `INVITED` → `ORG`.
+- 🔒 **Private by default** — every artifact is owner-only until you share it. Visibility: `PRIVATE` → `INVITED` → `ORG` → `LINK`.
+- 🌐 **Subdomain hosting + no-login sharing** — serve a page at `{slug}.your-root` (or a custom `{label}.your-root`); the `LINK` level drops the login requirement for internal, VPN-gated hosting ([ADR-0017](docs/adr/0017-subdomain-artifact-addressing.md), [ADR-0018](docs/adr/0018-anonymous-vpn-gated-visibility.md)).
 - 👥 **Per-artifact RBAC** — the allow/deny decision runs in the app, per artifact; grants bind to an immutable identity subject.
 - 🧾 **Inbuilt tamper-evident audit** — who-viewed-what, hash-chained in the app's own store, never routed to an external system.
 - 🖼️ **Sandboxed viewer** — artifacts render in a null-origin, strict-CSP iframe with quality on par with the vendor viewer.

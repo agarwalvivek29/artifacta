@@ -23,6 +23,7 @@ type FileStore struct {
 	mu       sync.Mutex
 	dir      string
 	arts     map[string]*artifactav1.Artifact
+	labels   map[string]string // custom subdomain label → slug (ADR-0017), derived from arts
 	grants   []*artifactav1.Grant
 	versions []*artifactav1.ArtifactVersion
 	comments []*artifactav1.Comment
@@ -34,7 +35,7 @@ func NewFileStore(dir string) (*FileStore, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}
-	s := &FileStore{dir: dir, arts: map[string]*artifactav1.Artifact{}}
+	s := &FileStore{dir: dir, arts: map[string]*artifactav1.Artifact{}, labels: map[string]string{}}
 	if err := s.load(); err != nil {
 		return nil, err
 	}
@@ -113,7 +114,48 @@ func (s *FileStore) load() error {
 			s.seq = ev.GetSeq()
 		}
 	}
+	// Rebuild the label→slug index from the artifacts (art.Label is authoritative,
+	// ADR-0017), so the reverse lookup never drifts from the stored artifacts.
+	s.labels = map[string]string{}
+	for slug, a := range s.arts {
+		if a.GetLabel() != "" {
+			s.labels[a.GetLabel()] = slug
+		}
+	}
 	return nil
+}
+
+// SetLabel atomically claims a custom subdomain label (ADR-0017) for slug. It
+// enforces global uniqueness: the return bool is false (nothing written) when the
+// label is already held by a different artifact, or when slug does not exist. A
+// label already held by this same slug is idempotent. Claiming a new label
+// releases the artifact's previous label. The caller is responsible for having
+// validated the label with domain.ValidLabel first.
+func (s *FileStore) SetLabel(slug, label string) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	a, ok := s.arts[slug]
+	if !ok {
+		return false, nil // no such artifact
+	}
+	if cur, taken := s.labels[label]; taken && cur != slug {
+		return false, nil // label already claimed by another artifact
+	}
+	if prev := a.GetLabel(); prev != "" && prev != label {
+		delete(s.labels, prev) // release the artifact's previous label
+	}
+	a.Label = label
+	s.labels[label] = slug
+	return true, s.persistArtifacts()
+}
+
+// SlugForLabel resolves a custom subdomain label to its slug (ADR-0017). The bool
+// is false when no artifact holds that label (a miss, not an error).
+func (s *FileStore) SlugForLabel(label string) (string, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	slug, ok := s.labels[label]
+	return slug, ok, nil
 }
 
 func (s *FileStore) PutArtifact(a *artifactav1.Artifact) error {

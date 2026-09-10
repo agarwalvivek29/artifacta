@@ -45,6 +45,10 @@ type Store interface {
 	ListByOwner(sub string) ([]*artifactav1.Artifact, error)
 	ListByGrantee(sub string) ([]*artifactav1.Artifact, error)
 	ListByVisibility(v artifactav1.Visibility) ([]*artifactav1.Artifact, error)
+	// Custom subdomain labels (ADR-0017): claim a globally-unique label for a
+	// slug (false = already taken / no such artifact) and resolve label → slug.
+	SetLabel(slug, label string) (bool, error)
+	SlugForLabel(label string) (string, bool, error)
 }
 
 type Blob interface {
@@ -63,6 +67,11 @@ type Server struct {
 	// BaseURL is the public origin (e.g. https://here.now) used to build the
 	// absolute artifact link returned by the publish API.
 	BaseURL string
+	// RootDomain, when non-empty (e.g. "artifacta.genorim.xyz"), enables subdomain
+	// hosting (ADR-0017): {slug|label}.{RootDomain} serves the artifact's bytes at
+	// its root. It also lets the API report each artifact's subdomain URL. Empty
+	// disables subdomain routing; path-based /a/{slug} is unaffected either way.
+	RootDomain string
 	// OIDC, when non-nil, provides browser SSO (ADR-0007): its Login/Callback
 	// handlers replace the dev cookie-setter and it is the request authenticator.
 	// When nil, the server uses the dev /login helper and the Local adapter.
@@ -116,12 +125,22 @@ func (s *Server) Routes() http.Handler {
 	// 404 that never distinguishes "missing" from "not yours".
 	mux.Handle("POST /artifacts/{slug}/grants", rateLimit(http.HandlerFunc(s.addGrant), contentPerMinute))
 	mux.Handle("PATCH /artifacts/{slug}/visibility", rateLimit(http.HandlerFunc(s.setVisibility), contentPerMinute))
+	// Custom subdomain label (ADR-0017): owner-only claim of a {label}.{root} host.
+	mux.Handle("PATCH /artifacts/{slug}/label", rateLimit(http.HandlerFunc(s.setLabel), contentPerMinute))
 
 	// Comments (ADR-0014): view-gated create/list (anyone who CanView), owner-only
 	// resolve. Not audited — comments are collaboration content, not access events.
 	mux.Handle("POST /artifacts/{slug}/comments", rateLimit(http.HandlerFunc(s.addComment), contentPerMinute))
 	mux.Handle("GET /artifacts/{slug}/comments", rateLimit(http.HandlerFunc(s.listComments), contentPerMinute))
 	mux.Handle("POST /artifacts/{slug}/comments/{id}/resolve", rateLimit(http.HandlerFunc(s.resolveComment), contentPerMinute))
+
+	// Subdomain hosting (ADR-0017): when RootDomain is configured, wrap the mux so
+	// a request to {slug|label}.{RootDomain} is rewritten to the canonical
+	// /a/{slug}/raw serving path (which keeps the CanView gate, audit, and CSP).
+	// When RootDomain is empty this is a no-op and only path routing is active.
+	if s.RootDomain != "" {
+		return &hostRouter{root: s.RootDomain, store: s.Store, next: mux}
+	}
 	return mux
 }
 
@@ -215,6 +234,8 @@ func visibilityLabel(v artifactav1.Visibility) string {
 		return "invited"
 	case artifactav1.Visibility_VISIBILITY_ORG:
 		return "org"
+	case artifactav1.Visibility_VISIBILITY_LINK:
+		return "link"
 	default:
 		return "unknown"
 	}
@@ -611,6 +632,10 @@ func (s *Server) metadata(w http.ResponseWriter, r *http.Request) {
 		"latest_version": art.GetLatestVersion(),
 		"is_owner":       who != nil && who.GetSub() == art.GetOwnerSub(),
 		"versions":       vs,
+		// Subdomain hosting (ADR-0017): the custom label (if any) and the absolute
+		// subdomain URL. subdomain_url is "" when RootDomain is not configured.
+		"label":         art.GetLabel(),
+		"subdomain_url": s.subdomainURL(subdomainHost(art)),
 	})
 }
 
@@ -684,6 +709,75 @@ func (s *Server) setVisibility(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
+// setLabel (ADR-0017) claims a custom subdomain label for an artifact, making it
+// reachable at {label}.{root-domain}. Owner-only via the same fail-closed gate as
+// the other mutations (401 unauthenticated, 404 non-owner/missing). The body is
+// {"label":"my-app"}: it is lower-cased, must be a valid non-reserved DNS label
+// (else 400), and must be globally unique (else 409). On success the artifact's
+// label is updated and a SHARE audit event is written. Returns 200 with the URL.
+func (s *Server) setLabel(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+	_, who, ok := s.ownedArtifact(w, r, slug)
+	if !ok {
+		return
+	}
+	var body struct {
+		Label string `json:"label"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	// Validate the raw input: ValidLabel is the single source of truth (it rejects
+	// upper-case and other non-DNS-safe input) rather than silently normalizing,
+	// which would let "MyApp" quietly re-label an artifact under "myapp".
+	label := strings.TrimSpace(body.Label)
+	if !domain.ValidLabel(label) {
+		http.Error(w, "invalid label", http.StatusBadRequest)
+		return
+	}
+	claimed, err := s.Store.SetLabel(slug, label)
+	if err != nil {
+		http.Error(w, "unavailable", http.StatusInternalServerError)
+		return
+	}
+	if !claimed {
+		http.Error(w, "label taken", http.StatusConflict)
+		return
+	}
+	s.audit(who, slug, artifactav1.AuditAction_AUDIT_ACTION_SHARE, true)
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]string{
+		"slug":          slug,
+		"label":         label,
+		"subdomain_url": s.subdomainURL(label),
+	})
+}
+
+// subdomainURL returns the absolute URL at which a subdomain host (a slug or a
+// custom label) serves an artifact, or "" when subdomain hosting is disabled
+// (RootDomain empty) or sub is empty. The scheme mirrors BaseURL — https in real
+// deploys, http only when BaseURL is explicitly http (local dev).
+func (s *Server) subdomainURL(sub string) string {
+	if s.RootDomain == "" || sub == "" {
+		return ""
+	}
+	scheme := "https"
+	if strings.HasPrefix(strings.ToLower(s.BaseURL), "http://") {
+		scheme = "http"
+	}
+	return scheme + "://" + sub + "." + s.RootDomain
+}
+
+// subdomainHost returns the preferred subdomain host for an artifact: its custom
+// label when set, otherwise its slug (which is always a valid DNS label).
+func subdomainHost(a *artifactav1.Artifact) string {
+	if a.GetLabel() != "" {
+		return a.GetLabel()
+	}
+	return a.GetSlug()
+}
+
 // parseVisibility maps the wire strings accepted by the set-visibility endpoint
 // to the Visibility enum. The unspecified/zero value is never a valid target, so
 // an unrecognized string returns ok=false and the caller rejects it with 400.
@@ -695,6 +789,9 @@ func parseVisibility(s string) (artifactav1.Visibility, bool) {
 		return artifactav1.Visibility_VISIBILITY_INVITED, true
 	case "org":
 		return artifactav1.Visibility_VISIBILITY_ORG, true
+	case "link":
+		// No-login, VPN-gated hosting (ADR-0018). Owner opts in explicitly.
+		return artifactav1.Visibility_VISIBILITY_LINK, true
 	default:
 		return artifactav1.Visibility_VISIBILITY_UNSPECIFIED, false
 	}

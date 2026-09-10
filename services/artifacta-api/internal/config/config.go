@@ -14,9 +14,14 @@ type Config struct {
 	Addr    string `json:"addr"`
 	BaseURL string `json:"base_url"`
 	DataDir string `json:"data_dir"`
-	Token   string `json:"token"`
-	Sub     string `json:"sub"`
-	Email   string `json:"email"`
+	// RootDomain enables subdomain artifact hosting (ADR-0017). When set (e.g.
+	// "artifacta.genorim.xyz"), requests to {slug|label}.{RootDomain} resolve to
+	// that artifact and serve its bytes at the subdomain root. Empty disables
+	// subdomain routing entirely — path-based /a/{slug} is unaffected either way.
+	RootDomain string `json:"root_domain"`
+	Token      string `json:"token"`
+	Sub        string `json:"sub"`
+	Email      string `json:"email"`
 	// OIDC browser-SSO settings (ADR-0007, FR6). When OIDCIssuer + OIDCClientID
 	// are set, the server wires the OIDC provider and its /login + /callback
 	// handlers; otherwise it falls back to the Local single-token adapter.
@@ -85,6 +90,7 @@ func applyEnv(c *Config) {
 	setFromEnv("ARTIFACTA_ADDR", &c.Addr)
 	setFromEnv("ARTIFACTA_BASE_URL", &c.BaseURL)
 	setFromEnv("ARTIFACTA_DATA_DIR", &c.DataDir)
+	setFromEnv("ARTIFACTA_ROOT_DOMAIN", &c.RootDomain)
 	setFromEnv("ARTIFACTA_OIDC_ISSUER", &c.OIDCIssuer)
 	setFromEnv("ARTIFACTA_OIDC_CLIENT_ID", &c.OIDCClientID)
 	setFromEnv("ARTIFACTA_OIDC_CLIENT_SECRET", &c.OIDCClientSecret)

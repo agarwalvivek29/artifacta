@@ -77,10 +77,27 @@ func Run(args []string) error {
 	}
 }
 
-func open(c config.Config) (*infra.FileStore, *infra.BlobFS, error) {
-	st, err := infra.NewFileStore(filepath.Join(c.DataDir, "meta"))
-	if err != nil {
-		return nil, nil, err
+// open builds the metadata store + blob store from config. The metadata backend
+// is selectable (ARTIFACTA_STORE): "postgres" for the horizontally-scalable GORM
+// store (ADR-0009), else the zero-dependency file store. Blobs stay on the
+// filesystem in both modes (S3 adapter is ADR-0006, a separate piece).
+func open(c config.Config) (api.Store, api.Blob, error) {
+	var st api.Store
+	switch strings.ToLower(strings.TrimSpace(c.StoreBackend)) {
+	case "postgres", "postgresql", "pg":
+		s, err := infra.NewSQLStore(c.DatabaseURL)
+		if err != nil {
+			return nil, nil, err
+		}
+		st = s
+	case "", "file", "filestore":
+		s, err := infra.NewFileStore(filepath.Join(c.DataDir, "meta"))
+		if err != nil {
+			return nil, nil, err
+		}
+		st = s
+	default:
+		return nil, nil, fmt.Errorf("unknown ARTIFACTA_STORE %q (want \"file\" or \"postgres\")", c.StoreBackend)
 	}
 	bl, err := infra.NewBlobFS(filepath.Join(c.DataDir, "blobs"))
 	if err != nil {

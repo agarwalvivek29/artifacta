@@ -24,9 +24,15 @@ type Config struct {
 	// is the wordmark beside it. Both empty falls back to the ArtifactA wordmark.
 	OrgName string `json:"org_name"`
 	LogoURL string `json:"logo_url"`
-	Token   string `json:"token"`
-	Sub     string `json:"sub"`
-	Email   string `json:"email"`
+	// StoreBackend selects the metadata store: "file" (default; JSON on local disk,
+	// zero dependencies, single-instance) or "postgres" (ADR-0009; horizontally
+	// scalable, uniqueness enforced by the DB). DatabaseURL is the postgres DSN,
+	// required when StoreBackend is "postgres".
+	StoreBackend string `json:"store_backend"`
+	DatabaseURL  string `json:"database_url"`
+	Token        string `json:"token"`
+	Sub          string `json:"sub"`
+	Email        string `json:"email"`
 	// OIDC browser-SSO settings (ADR-0007, FR6). When OIDCIssuer + OIDCClientID
 	// are set, the server wires the OIDC provider and its /login + /callback
 	// handlers; otherwise it falls back to the Local single-token adapter.
@@ -98,6 +104,8 @@ func applyEnv(c *Config) {
 	setFromEnv("ARTIFACTA_ROOT_DOMAIN", &c.RootDomain)
 	setFromEnv("ARTIFACTA_ORG_NAME", &c.OrgName)
 	setFromEnv("ARTIFACTA_LOGO_URL", &c.LogoURL)
+	setFromEnv("ARTIFACTA_STORE", &c.StoreBackend)
+	setFromEnv("ARTIFACTA_DATABASE_URL", &c.DatabaseURL)
 	setFromEnv("ARTIFACTA_OIDC_ISSUER", &c.OIDCIssuer)
 	setFromEnv("ARTIFACTA_OIDC_CLIENT_ID", &c.OIDCClientID)
 	setFromEnv("ARTIFACTA_OIDC_CLIENT_SECRET", &c.OIDCClientSecret)

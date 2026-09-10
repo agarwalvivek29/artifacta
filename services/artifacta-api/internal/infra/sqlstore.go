@@ -386,3 +386,21 @@ func (s *SQLStore) Append(ev *artifactav1.AuditEvent) error {
 		return tx.Create(&auditRow{Seq: ev.GetSeq(), Hash: ev.GetHash(), Data: string(data)}).Error
 	})
 }
+
+// AuditEvents returns every audit row in seq order (interface parity with
+// FileStore, so `audit verify` works on postgres too).
+func (s *SQLStore) AuditEvents() ([]*artifactav1.AuditEvent, error) {
+	var rows []auditRow
+	if err := s.db.Order("seq ASC").Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make([]*artifactav1.AuditEvent, 0, len(rows))
+	for _, r := range rows {
+		ev := &artifactav1.AuditEvent{}
+		if err := protojson.Unmarshal([]byte(r.Data), ev); err != nil {
+			return nil, err
+		}
+		out = append(out, ev)
+	}
+	return out, nil
+}

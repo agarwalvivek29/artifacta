@@ -163,6 +163,15 @@ func runStoreConformance(t *testing.T, st api.Store) {
 	if e2.GetPrevHash() != e1.GetHash() || e2.GetHash() == "" {
 		t.Fatal("audit chain not linked")
 	}
+	// AuditEvents + VerifyChain must agree the persisted chain is intact (this is
+	// what `artifacta audit verify` runs, on either backend).
+	events, err := st.AuditEvents()
+	if err != nil {
+		t.Fatalf("AuditEvents: %v", err)
+	}
+	if n, err := infra.VerifyChain(events); err != nil {
+		t.Fatalf("VerifyChain over %d events: %v", n, err)
+	}
 }
 
 func TestFileStore_Conformance(t *testing.T) {

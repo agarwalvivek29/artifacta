@@ -36,6 +36,8 @@ type Store interface {
 	// RemoveGrant revokes a grant by grantee subject or email (FR13, ADR-0019).
 	RemoveGrant(slug, id string) (bool, error)
 	Append(ev *artifactav1.AuditEvent) error
+	// AuditEvents lists the audit trail in seq order (for `audit verify`).
+	AuditEvents() ([]*artifactav1.AuditEvent, error)
 	// Versioning (ADR-0013): immutable versions per artifact.
 	AddVersion(v *artifactav1.ArtifactVersion) error
 	Versions(slug string) ([]*artifactav1.ArtifactVersion, error)

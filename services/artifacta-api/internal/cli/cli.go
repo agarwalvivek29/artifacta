@@ -32,6 +32,10 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
+// Version is the build version, overridden at release time via
+// -ldflags "-X …/internal/cli.Version=<v>". Defaults to "dev" for local builds.
+var Version = "dev"
+
 const usage = `artifacta — self-hostable host for AI-generated artifacts
 
 Usage:
@@ -45,6 +49,7 @@ Usage:
   artifacta ls                list your artifacts
   artifacta serve             run the viewer server
   artifacta audit verify      verify the audit-log hash chain
+  artifacta version           print the build version
 
 Docs: docs/PLAN.md is legacy; see docs/PRODUCT.md, docs/ARCHITECTURE.md
 `
@@ -69,6 +74,9 @@ func Run(args []string) error {
 		return serve()
 	case "audit":
 		return audit(args[1:])
+	case "version", "--version", "-v":
+		fmt.Printf("artifacta %s\n", Version)
+		return nil
 	case "help", "-h", "--help":
 		fmt.Print(usage)
 		return nil
@@ -709,6 +717,6 @@ func serve() error {
 		srv.Auth = &api.Local{Token: c.Token, ID: c.Identity()}
 		fmt.Printf("auth: local single-token adapter\n")
 	}
-	fmt.Printf("artifacta serving on %s  (base URL %s)\n", c.Addr, c.BaseURL)
+	fmt.Printf("artifacta %s serving on %s  (base URL %s)\n", Version, c.Addr, c.BaseURL)
 	return http.ListenAndServe(c.Addr, srv.Routes())
 }

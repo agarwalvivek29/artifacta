@@ -773,7 +773,8 @@ func (s *Server) subdomainURL(sub string) string {
 		port = u.Port()
 	}
 	host := sub + "." + s.RootDomain
-	if port != "" && !(scheme == "https" && port == "443") && !(scheme == "http" && port == "80") {
+	isDefaultPort := (scheme == "https" && port == "443") || (scheme == "http" && port == "80")
+	if port != "" && !isDefaultPort {
 		host += ":" + port
 	}
 	return scheme + "://" + host

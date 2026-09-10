@@ -18,6 +18,13 @@ enum Visibility {
   VISIBILITY_PRIVATE = 1; // owner only (default)
   VISIBILITY_INVITED = 2; // owner + explicitly invited subjects
   VISIBILITY_ORG = 3;     // any authenticated user (optionally group-scoped)
+  // VISIBILITY_LINK: no login required. Access is gated by the network perimeter
+  // (the deployment sits behind the corporate VPN, ADR-0011) plus the unguessable
+  // 128-bit slug — NOT by an authenticated identity. This is the one visibility
+  // level for which CanView admits an anonymous caller. Intended for internal,
+  // low-sensitivity hosting (e.g. serving a static HTML page to colleagues on the
+  // VPN). Views are still audited (with an empty/anonymous principal). See ADR-0018.
+  VISIBILITY_LINK = 4;
 }
 
 // Identity is a verified principal. Sub is the immutable subject id (OIDC `sub`
@@ -41,6 +48,12 @@ message Artifact {
   // latest_version is the highest version number that exists for this artifact
   // (1-based). /a/{slug}/raw serves this version.
   int32 latest_version = 7;
+  // label is an optional, DNS-safe custom subdomain label (ADR-0017). When set,
+  // the artifact is reachable at https://{label}.{root-domain}; it is always also
+  // reachable at its slug subdomain https://{slug}.{root-domain}. Labels are
+  // globally unique and drawn from a restricted charset (see domain.ValidLabel).
+  // Empty means no custom label — the slug subdomain (and the /a/{slug} path) still work.
+  string label = 8;
 }
 
 // ArtifactVersion is one immutable revision of an artifact's bundle. Versions are

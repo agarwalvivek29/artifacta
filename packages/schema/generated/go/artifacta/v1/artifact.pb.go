@@ -30,6 +30,13 @@ const (
 	Visibility_VISIBILITY_PRIVATE     Visibility = 1 // owner only (default)
 	Visibility_VISIBILITY_INVITED     Visibility = 2 // owner + explicitly invited subjects
 	Visibility_VISIBILITY_ORG         Visibility = 3 // any authenticated user (optionally group-scoped)
+	// VISIBILITY_LINK: no login required. Access is gated by the network perimeter
+	// (the deployment sits behind the corporate VPN, ADR-0011) plus the unguessable
+	// 128-bit slug — NOT by an authenticated identity. This is the one visibility
+	// level for which CanView admits an anonymous caller. Intended for internal,
+	// low-sensitivity hosting (e.g. serving a static HTML page to colleagues on the
+	// VPN). Views are still audited (with an empty/anonymous principal). See ADR-0018.
+	Visibility_VISIBILITY_LINK Visibility = 4
 )
 
 // Enum value maps for Visibility.
@@ -39,12 +46,14 @@ var (
 		1: "VISIBILITY_PRIVATE",
 		2: "VISIBILITY_INVITED",
 		3: "VISIBILITY_ORG",
+		4: "VISIBILITY_LINK",
 	}
 	Visibility_value = map[string]int32{
 		"VISIBILITY_UNSPECIFIED": 0,
 		"VISIBILITY_PRIVATE":     1,
 		"VISIBILITY_INVITED":     2,
 		"VISIBILITY_ORG":         3,
+		"VISIBILITY_LINK":        4,
 	}
 )
 
@@ -144,6 +153,12 @@ type Artifact struct {
 	// latest_version is the highest version number that exists for this artifact
 	// (1-based). /a/{slug}/raw serves this version.
 	LatestVersion int32 `protobuf:"varint,7,opt,name=latest_version,json=latestVersion,proto3" json:"latest_version,omitempty"`
+	// label is an optional, DNS-safe custom subdomain label (ADR-0017). When set,
+	// the artifact is reachable at https://{label}.{root-domain}; it is always also
+	// reachable at its slug subdomain https://{slug}.{root-domain}. Labels are
+	// globally unique and drawn from a restricted charset (see domain.ValidLabel).
+	// Empty means no custom label — the slug subdomain (and the /a/{slug} path) still work.
+	Label         string `protobuf:"bytes,8,opt,name=label,proto3" json:"label,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -225,6 +240,13 @@ func (x *Artifact) GetLatestVersion() int32 {
 		return x.LatestVersion
 	}
 	return 0
+}
+
+func (x *Artifact) GetLabel() string {
+	if x != nil {
+		return x.Label
+	}
+	return ""
 }
 
 // ArtifactVersion is one immutable revision of an artifact's bundle. Versions are
@@ -601,7 +623,7 @@ const file_artifacta_v1_artifact_proto_rawDesc = "" +
 	"\x1bartifacta/v1/artifact.proto\x12\fartifacta.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"2\n" +
 	"\bIdentity\x12\x10\n" +
 	"\x03sub\x18\x01 \x01(\tR\x03sub\x12\x14\n" +
-	"\x05email\x18\x02 \x01(\tR\x05email\"\x90\x02\n" +
+	"\x05email\x18\x02 \x01(\tR\x05email\"\xa6\x02\n" +
 	"\bArtifact\x12\x12\n" +
 	"\x04slug\x18\x01 \x01(\tR\x04slug\x12\x1b\n" +
 	"\towner_sub\x18\x02 \x01(\tR\bownerSub\x12\x14\n" +
@@ -612,7 +634,8 @@ const file_artifacta_v1_artifact_proto_rawDesc = "" +
 	"\fcontent_type\x18\x05 \x01(\tR\vcontentType\x129\n" +
 	"\n" +
 	"created_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12%\n" +
-	"\x0elatest_version\x18\a \x01(\x05R\rlatestVersion\"\xc4\x01\n" +
+	"\x0elatest_version\x18\a \x01(\x05R\rlatestVersion\x12\x14\n" +
+	"\x05label\x18\b \x01(\tR\x05label\"\xc4\x01\n" +
 	"\x0fArtifactVersion\x12\x12\n" +
 	"\x04slug\x18\x01 \x01(\tR\x04slug\x12\f\n" +
 	"\x01n\x18\x02 \x01(\x05R\x01n\x12!\n" +
@@ -650,13 +673,14 @@ const file_artifacta_v1_artifact_proto_rawDesc = "" +
 	"\x06prefix\x18\x02 \x01(\tR\x06prefix\x12\x16\n" +
 	"\x06suffix\x18\x03 \x01(\tR\x06suffix\x12\x14\n" +
 	"\x05start\x18\x04 \x01(\x05R\x05start\x12\x10\n" +
-	"\x03end\x18\x05 \x01(\x05R\x03end*l\n" +
+	"\x03end\x18\x05 \x01(\x05R\x03end*\x81\x01\n" +
 	"\n" +
 	"Visibility\x12\x1a\n" +
 	"\x16VISIBILITY_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12VISIBILITY_PRIVATE\x10\x01\x12\x16\n" +
 	"\x12VISIBILITY_INVITED\x10\x02\x12\x12\n" +
-	"\x0eVISIBILITY_ORG\x10\x03B\xcc\x01\n" +
+	"\x0eVISIBILITY_ORG\x10\x03\x12\x13\n" +
+	"\x0fVISIBILITY_LINK\x10\x04B\xcc\x01\n" +
 	"\x10com.artifacta.v1B\rArtifactProtoP\x01ZXgithub.com/agarwalvivek29/here.now/packages/schema/generated/go/artifacta/v1;artifactav1\xa2\x02\x03AXX\xaa\x02\fArtifacta.V1\xca\x02\fArtifacta\\V1\xe2\x02\x18Artifacta\\V1\\GPBMetadata\xea\x02\rArtifacta::V1b\x06proto3"
 
 var (

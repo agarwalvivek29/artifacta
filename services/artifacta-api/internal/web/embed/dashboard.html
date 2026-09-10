@@ -12,7 +12,9 @@
       --bg:#f4f5fa; --surface:#ffffff; --surface-2:#eef0f7; --ink:#14142b; --muted:#5a5c78;
       --line:#e4e6f1; --accent:#e8265c; --accent-hover:#c81f4f; --on-accent:#ffffff;
       --priv:#5b6478; --priv-bg:#eceef3; --inv:#0f857a; --inv-bg:#d8efec; --org:#5a5be0; --org-bg:#e6e6fb;
+      --link:#0b6ea8; --link-bg:#dcecf8; --ok:#0f857a; --ok-bg:#d8efec; --bad:#c0362c; --bad-bg:#f7e1de;
       --shadow:0 1px 2px rgba(20,20,43,.05),0 10px 30px -16px rgba(20,20,43,.18);
+      --modal-shadow:0 1px 2px rgba(20,20,43,.06),0 40px 80px -28px rgba(20,20,43,.42);
       --radius:14px;
     }
     @media (prefers-color-scheme:dark){
@@ -20,7 +22,8 @@
         --bg:#0c0c20; --surface:#15153a; --surface-2:#1c1c46; --ink:#eaebf6; --muted:#a3a6c6;
         --line:#292954; --accent:#ff5c82; --accent-hover:#ff789a; --on-accent:#1a0410;
         --priv:#9aa2ba; --priv-bg:#20263a; --inv:#38c9ba; --inv-bg:#0e332f; --org:#8f90f5; --org-bg:#1f2050;
-        --shadow:0 1px 2px rgba(0,0,0,.4),0 16px 40px -18px rgba(0,0,0,.7);
+        --link:#5bb2e6; --link-bg:#10314a; --ok:#38c9ba; --ok-bg:#0e332f; --bad:#ff8071; --bad-bg:#3a1512;
+        --modal-shadow:0 1px 2px rgba(0,0,0,.5),0 50px 90px -30px rgba(0,0,0,.85);
       }
     }
     *{box-sizing:border-box}
@@ -33,6 +36,9 @@
       backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
     .brand{display:flex;align-items:center;gap:10px;font-weight:700;letter-spacing:-.01em;font-size:16px}
     .brand .mark{width:14px;height:14px;border-radius:4px;background:var(--accent);box-shadow:0 0 0 4px color-mix(in srgb,var(--accent) 18%,transparent)}
+    .brand .orglogo{height:24px;width:auto;max-width:140px;border-radius:5px;display:block;object-fit:contain}
+    .brand .cobrand{font-family:"IBM Plex Mono",monospace;font-size:10.5px;font-weight:500;color:var(--muted);
+      padding-left:10px;margin-left:2px;border-left:1px solid var(--line)}
 
     /* profile menu */
     .profile{position:relative}
@@ -104,11 +110,103 @@
       background:var(--ink);color:var(--bg);font-size:12.5px;padding:8px 14px;border-radius:8px;
       transition:opacity .18s,transform .18s;pointer-events:none;font-weight:500;z-index:30}
     .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+    /* ── Share dialog ─────────────────────────────────────────────── */
+    .share-ov{position:fixed;inset:0;z-index:40;display:none;place-items:center;padding:20px;
+      background:color-mix(in srgb,var(--ink) 46%,transparent);backdrop-filter:blur(2px)}
+    .share-ov.open{display:grid}
+    .share-md{width:min(520px,100%);max-height:calc(100vh - 40px);overflow-y:auto;background:var(--surface);
+      border:1px solid var(--line);border-radius:20px;box-shadow:var(--modal-shadow)}
+    .share-md .mono{font-family:"IBM Plex Mono",monospace}
+    .share-md .mh{display:flex;align-items:flex-start;gap:12px;padding:20px 22px 16px}
+    .share-md .mh .t{flex:1;min-width:0}
+    .share-md .eyebrow{font-family:"IBM Plex Mono",monospace;font-size:10.5px;font-weight:600;letter-spacing:.16em;
+      text-transform:uppercase;color:var(--muted)}
+    .share-md h3{margin:3px 0 0;font-size:18px;font-weight:700;letter-spacing:-.01em;
+      white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .share-md .x{flex:none;width:30px;height:30px;border-radius:9px;border:1px solid var(--line);
+      background:var(--surface-2);color:var(--muted);font-size:17px;line-height:1;display:grid;place-items:center;cursor:pointer}
+    .share-md .x:hover{color:var(--ink);border-color:var(--muted)}
+    .share-md .mb{padding:4px 22px 20px;display:flex;flex-direction:column;gap:20px}
+    .share-md .flabel{font-family:"IBM Plex Mono",monospace;font-size:10.5px;font-weight:600;letter-spacing:.14em;
+      text-transform:uppercase;color:var(--muted);margin-bottom:9px}
+    .share-md .seg{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;background:var(--surface-2);
+      border:1px solid var(--line);border-radius:12px;padding:5px}
+    .share-md .seg button{display:flex;flex-direction:column;align-items:center;gap:5px;padding:9px 4px;
+      border:1px solid transparent;border-radius:8px;background:transparent;color:var(--muted);font:inherit;font-size:12px;font-weight:500;cursor:pointer}
+    .share-md .seg button svg{width:17px;height:17px}
+    .share-md .seg button:hover{color:var(--ink)}
+    .share-md .seg button[aria-pressed="true"]{background:var(--surface);color:var(--ink);border-color:var(--line);box-shadow:0 1px 2px rgba(20,20,43,.06)}
+    .share-md .seg button[aria-pressed="true"][data-v="private"]{color:var(--priv)}
+    .share-md .seg button[aria-pressed="true"][data-v="invited"]{color:var(--inv)}
+    .share-md .seg button[aria-pressed="true"][data-v="org"]{color:var(--org)}
+    .share-md .seg button[aria-pressed="true"][data-v="link"]{color:var(--link)}
+    .share-md .vdesc{margin-top:10px;display:flex;gap:9px;align-items:flex-start;font-size:13px;color:var(--muted)}
+    .share-md .vdesc .dot{margin-top:6px;width:7px;height:7px;border-radius:50%;flex:none;background:var(--link)}
+    .share-md .hidden{display:none!important}
+    .share-md .addr{border:1px solid var(--line);border-radius:12px;overflow:hidden}
+    .share-md .arow{padding:13px 14px;display:flex;flex-direction:column;gap:8px}
+    .share-md .arow+.arow{border-top:1px solid var(--line)}
+    .share-md .rtop{display:flex;align-items:center;justify-content:space-between;gap:10px}
+    .share-md .kicker{font-size:12px;font-weight:600;color:var(--ink)}
+    .share-md .badge{font-family:"IBM Plex Mono",monospace;font-size:10px;font-weight:500;letter-spacing:.04em;
+      padding:2px 8px;border-radius:999px;border:1px solid transparent;white-space:nowrap}
+    .share-md .badge.auto{color:var(--muted);background:var(--surface-2);border-color:var(--line)}
+    .share-md .badge.ok{color:var(--ok);background:var(--ok-bg)}
+    .share-md .badge.bad{color:var(--bad);background:var(--bad-bg)}
+    .share-md .url{display:flex;align-items:center;gap:8px;background:var(--surface-2);border:1px solid var(--line);
+      border-radius:9px;padding:8px 8px 8px 11px}
+    .share-md .url .u{flex:1;min-width:0;font-size:12.5px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:"IBM Plex Mono",monospace}
+    .share-md .url .u .host{color:var(--muted)}
+    .share-md .ucopy{flex:none;width:30px;height:30px;border-radius:7px;border:1px solid var(--line);background:var(--surface);
+      color:var(--muted);display:grid;place-items:center;cursor:pointer}
+    .share-md .ucopy svg{width:15px;height:15px}
+    .share-md .ucopy:hover{color:var(--ink);border-color:var(--muted)}
+    .share-md .inpwrap{display:flex;align-items:stretch;border:1.5px solid var(--line);border-radius:9px;overflow:hidden;background:var(--surface)}
+    .share-md .inpwrap:focus-within{border-color:var(--link)}
+    .share-md .inpwrap.bad{border-color:var(--bad)}
+    .share-md .inpwrap.ok{border-color:var(--ok)}
+    .share-md .inpwrap input{flex:1;min-width:0;border:none;outline:none;background:transparent;color:var(--ink);
+      padding:9px 4px 9px 11px;font-family:"IBM Plex Mono",monospace;font-size:13px}
+    .share-md .affix{display:flex;align-items:center;padding:0 12px 0 2px;font-family:"IBM Plex Mono",monospace;
+      font-size:12.5px;color:var(--muted);white-space:nowrap}
+    .share-md .hint{font-size:12px;color:var(--muted);margin-top:8px;min-height:1.2em}
+    .share-md .hint.bad{color:var(--bad)}
+    .share-md .ractions{display:flex;gap:9px;align-items:center;margin-top:11px}
+    .share-md .btn-link{background:var(--link);color:#fff;border:1px solid transparent;border-radius:9px;padding:8px 15px;font:inherit;font-size:13px;font-weight:600;cursor:pointer}
+    .share-md .btn-inv{background:var(--inv);color:#fff;border:1px solid transparent;border-radius:9px;padding:0 17px;font:inherit;font-size:13px;font-weight:600;cursor:pointer}
+    .share-md .btn-link:disabled,.share-md .btn-inv:disabled{opacity:.45;cursor:not-allowed}
+    .share-md .note{display:flex;gap:9px;align-items:flex-start;font-size:12.5px;color:var(--muted);
+      background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:11px 12px}
+    .share-md .note svg{width:15px;height:15px;flex:none;margin-top:2px;color:var(--link)}
+    .share-md .invrow{display:flex;gap:8px}
+    .share-md .invrow input{flex:1;min-width:0;border:1.5px solid var(--line);border-radius:9px;background:var(--surface);
+      color:var(--ink);padding:9px 12px;font:inherit;font-size:13.5px;outline:none}
+    .share-md .invrow input:focus{border-color:var(--inv)}
+    .share-md .invhead{display:flex;align-items:center;justify-content:space-between;margin:16px 0 6px}
+    .share-md .subhead{font-family:"IBM Plex Mono",monospace;font-size:10.5px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+    .share-md .cnt{font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--muted);background:var(--surface-2);border:1px solid var(--line);border-radius:999px;padding:1px 8px}
+    .share-md .ppl{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+    .share-md .person{display:flex;align-items:center;gap:11px;padding:8px 6px;border-radius:9px}
+    .share-md .person+.person{border-top:1px solid var(--line)}
+    .share-md .iav{width:30px;height:30px;border-radius:50%;flex:none;display:grid;place-items:center;font-size:12px;font-weight:700;color:var(--inv);background:var(--inv-bg);text-transform:uppercase}
+    .share-md .pemail{flex:1;min-width:0;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .share-md .otag{font-family:"IBM Plex Mono",monospace;font-size:10px;letter-spacing:.05em;color:var(--muted);background:var(--surface-2);border:1px solid var(--line);border-radius:999px;padding:2px 8px}
+    .share-md .prm{flex:none;width:27px;height:27px;border-radius:7px;border:1px solid transparent;background:transparent;color:var(--muted);font-size:16px;line-height:1;display:grid;place-items:center;cursor:pointer}
+    .share-md .prm:hover{color:var(--bad);background:var(--bad-bg)}
+    .share-md .mf{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:15px 22px 20px;border-top:1px solid var(--line)}
+    .share-md .msm{font-size:12px;color:var(--muted)}
+    .share-md .done{background:var(--accent);color:var(--on-accent);border:1px solid transparent;border-radius:10px;padding:9px 20px;font:inherit;font-size:14px;font-weight:600;cursor:pointer}
+    .share-md .done:hover{background:var(--accent-hover)}
+    @media (prefers-reduced-motion:reduce){.share-md *{transition:none!important}}
   </style>
 </head>
 <body>
   <header>
-    <div class="brand"><span class="mark"></span> ArtifactA</div>
+    <div class="brand">
+      {{if .LogoURL}}<img class="orglogo" src="{{.LogoURL}}" alt="{{if .OrgName}}{{.OrgName}}{{else}}logo{{end}}">{{else}}<span class="mark"></span>{{end}}
+      {{if .OrgName}}{{.OrgName}}<span class="cobrand">on ArtifactA</span>{{else}}ArtifactA{{end}}
+    </div>
     <div class="profile" id="profile">
       <button class="profile-btn" id="profileBtn" aria-haspopup="true" aria-expanded="false">
         <span class="avatar">{{if .Email}}{{slice .Email 0 1}}{{else}}?{{end}}</span>
@@ -142,6 +240,9 @@
             </div>
             <div class="row2">
               <span class="slug">/a/{{.Slug}}</span>
+              {{if .IsOwner}}<button class="iconbtn share" data-slug="{{.Slug}}" data-title="{{.Title}}" type="button" title="Share" aria-label="Share">
+                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="18" cy="5" r="2.6" stroke="currentColor" stroke-width="2"/><circle cx="6" cy="12" r="2.6" stroke="currentColor" stroke-width="2"/><circle cx="18" cy="19" r="2.6" stroke="currentColor" stroke-width="2"/><path d="M8.3 10.8l7.4-4.3M8.3 13.2l7.4 4.3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+              </button>{{end}}
               <button class="iconbtn copy" data-slug="{{.Slug}}" type="button" title="Copy link" aria-label="Copy link">
                 <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M9 9h9a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-9a2 2 0 0 1-2-2v-1M15 4H6a2 2 0 0 0-2 2v9" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
               </button>
@@ -174,6 +275,61 @@
     </div>
   </main>
 
+  <!-- Share dialog (owner-only; populated + wired in JS) -->
+  <div class="share-ov" id="shareOv" role="dialog" aria-modal="true" aria-labelledby="shTitle">
+    <div class="share-md">
+      <div class="mh">
+        <div class="t"><div class="eyebrow">Share</div><h3 id="shTitle">Artifact</h3></div>
+        <button class="x" id="shClose" type="button" aria-label="Close">&times;</button>
+      </div>
+      <div class="mb">
+        <div>
+          <div class="flabel">Who can view</div>
+          <div class="seg" id="shSeg" role="group" aria-label="Visibility">
+            <button type="button" data-v="private" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>Private</button>
+            <button type="button" data-v="invited" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 19a5.5 5.5 0 0 1 11 0"/><path d="M18 8v6M15 11h6"/></svg>Invited</button>
+            <button type="button" data-v="org" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V7l6-3 6 3v13"/><path d="M9 20v-4h2v4M20 20V11l-4-2"/></svg>Org</button>
+            <button type="button" data-v="link" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 15l6-6"/><path d="M10.5 6.5l1-1a4 4 0 0 1 6 6l-1 1"/><path d="M13.5 17.5l-1 1a4 4 0 0 1-6-6l1-1"/></svg>Link</button>
+          </div>
+          <div class="vdesc"><span class="dot" id="shDot"></span><span id="shDesc"></span></div>
+        </div>
+
+        <div id="shInvite" class="hidden">
+          <div class="flabel">Invite by email</div>
+          <div class="invrow">
+            <input id="shEmail" type="email" spellcheck="false" autocomplete="off" placeholder="name@company.com" aria-label="Invite by email">
+            <button class="btn-inv" id="shInviteBtn" type="button">Invite</button>
+          </div>
+          <div class="hint" id="shInviteHint">They get access after signing in with their work account.</div>
+          <div class="invhead"><span class="subhead">People with access</span><span class="cnt" id="shCount">0</span></div>
+          <ul class="ppl" id="shPeople"></ul>
+        </div>
+
+        <div id="shAddr" class="hidden">
+          <div class="flabel">Address</div>
+          <div class="addr">
+            <div class="arow">
+              <div class="rtop"><span class="kicker">Automatic subdomain</span><span class="badge auto">always on</span></div>
+              <div class="url"><span class="u" id="shAuto"></span>
+                <button class="ucopy" id="shAutoCopy" type="button" aria-label="Copy automatic URL"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M6 15H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v1"/></svg></button>
+              </div>
+            </div>
+            <div class="arow">
+              <div class="rtop"><span class="kicker">Custom name</span><span class="badge" id="shAvail" hidden></span></div>
+              <div class="inpwrap" id="shInpwrap"><input id="shLabel" type="text" spellcheck="false" autocomplete="off" placeholder="my-page" aria-label="Custom subdomain name" maxlength="63"><span class="affix" id="shAffix"></span></div>
+              <div class="hint" id="shLabelHint">Lower-case letters, numbers and hyphens · up to 63 characters.</div>
+              <div class="ractions"><button class="btn-link" id="shClaim" type="button" disabled>Claim name</button><span class="msm" id="shClaimNote"></span></div>
+            </div>
+          </div>
+          <div class="note" style="margin-top:14px"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg><span>Reachable to anyone <b>on the VPN</b> — no login required. Every view is still recorded in the audit trail.</span></div>
+        </div>
+
+        <div id="shOther" class="hidden"><div class="note"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 8h.01M11 12h1v4h1"/></svg><span id="shOtherNote"></span></div></div>
+      </div>
+      <div class="mf"><span class="msm">Changes save instantly</span><button class="done" id="shDone" type="button">Done</button></div>
+    </div>
+  </div>
+
   <div class="toast" id="toast">Link copied</div>
   <script>
     // Profile dropdown
@@ -192,8 +348,157 @@
     document.querySelectorAll('.copy').forEach(b => b.addEventListener('click', async () => {
       try { await navigator.clipboard.writeText(location.origin + '/a/' + b.dataset.slug); } catch (e) { return; }
       b.classList.add('copied'); toast.classList.add('show'); clearTimeout(t);
+      toast.textContent = 'Link copied';
       t = setTimeout(() => { toast.classList.remove('show'); b.classList.remove('copied'); }, 1400);
     }));
+
+    // ── Share dialog ────────────────────────────────────────────────
+    const OWNER_EMAIL = "{{.Email}}";
+    const shOv = document.getElementById('shareOv');
+    const el = id => document.getElementById(id);
+    function showToast(msg){ toast.textContent = msg; toast.classList.add('show'); clearTimeout(t); t = setTimeout(() => toast.classList.remove('show'), 1600); }
+
+    const LABEL_RE = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/;
+    const RESERVED = new Set(["www","api","app","admin","login","logout","auth","callback","sso","health","metrics","status","dashboard","static","assets","cdn","docs","help","mail","artifacta"]);
+    const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const VISD = {
+      private:{dot:'var(--priv)', d:'Only you can open it. This is the default for every new artifact.'},
+      invited:{dot:'var(--inv)',  d:'You plus the people you invite by email. Everyone signs in first.'},
+      org:{dot:'var(--org)',      d:'Anyone in your organization who is signed in can open it.'},
+      link:{dot:'var(--link)',    d:'Anyone on the VPN with the link can view — no login. Best for internal pages.'}
+    };
+    let cur = null;
+
+    function api(method, url, body){
+      const opt = { method, credentials:'same-origin' };
+      if(body !== undefined){ opt.headers = {'Content-Type':'application/json'}; opt.body = JSON.stringify(body); }
+      return fetch(url, opt);
+    }
+
+    function openShare(slug, title){
+      el('shTitle').textContent = title || slug;
+      api('GET', '/artifacts/' + encodeURIComponent(slug)).then(r => r.ok ? r.json() : Promise.reject(r.status)).then(m => {
+        cur = { slug:m.slug, root:m.root_domain || '', visibility:m.visibility, label:m.label || '',
+          people:(m.grantees || []).map(g => ({ id:g.id, email:g.email || '', sub:g.sub || '' })) };
+        if(cur.root){
+          el('shAuto').textContent = '';
+          const s = document.createElement('span'); s.textContent = cur.slug;
+          const h = document.createElement('span'); h.className = 'host'; h.textContent = '.' + cur.root;
+          el('shAuto').append(s, h);
+          el('shAffix').textContent = '.' + cur.root;
+        }
+        el('shLabel').value = cur.label;
+        setVis(cur.visibility, true);
+        renderPeople();
+        validateLabel();
+        shOv.classList.add('open');
+      }).catch(() => showToast('Could not load sharing settings'));
+    }
+    function closeShare(){ shOv.classList.remove('open'); }
+
+    function setVis(v, silent){
+      Array.from(el('shSeg').querySelectorAll('button')).forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === v)));
+      el('shDot').style.background = VISD[v].dot; el('shDesc').textContent = VISD[v].d;
+      const isLink = v === 'link', isInv = v === 'invited';
+      const linkWithSub = isLink && !!cur.root;
+      el('shAddr').classList.toggle('hidden', !linkWithSub);
+      el('shInvite').classList.toggle('hidden', !isInv);
+      const showOther = v === 'private' || v === 'org' || (isLink && !cur.root);
+      el('shOther').classList.toggle('hidden', !showOther);
+      if(showOther){
+        el('shOtherNote').textContent =
+          v === 'private' ? 'Private artifacts have no shareable address. Switch to Invited, Org, or Link to give people a way in.' :
+          v === 'org'     ? 'Everyone signed in to your organization can open this at its /a/ link.' :
+                            'Anyone on the VPN with the /a/ link can view — no login. Subdomain hosting is not enabled on this deployment.';
+      }
+      if(!silent){
+        const prev = cur.visibility; cur.visibility = v;
+        api('PATCH', '/artifacts/' + encodeURIComponent(cur.slug) + '/visibility', {visibility:v})
+          .then(r => { if(!r.ok) throw 0; showToast('Visibility set to ' + v); })
+          .catch(() => { cur.visibility = prev; setVis(prev, true); showToast('Could not change visibility'); });
+      }
+    }
+
+    function renderPeople(){
+      const ul = el('shPeople'); ul.textContent = '';
+      const rows = [];
+      if(OWNER_EMAIL) rows.push({ email:OWNER_EMAIL, owner:true });
+      cur.people.forEach(p => rows.push({ email:p.email || p.sub, id:p.id }));
+      rows.forEach(p => {
+        const li = document.createElement('li'); li.className = 'person';
+        const av = document.createElement('span'); av.className = 'iav'; av.textContent = (p.email || '?').slice(0,2);
+        const em = document.createElement('span'); em.className = 'pemail'; em.textContent = p.email;
+        li.append(av, em);
+        if(p.owner){ const tg = document.createElement('span'); tg.className = 'otag'; tg.textContent = 'owner'; li.append(tg); }
+        else {
+          const rm = document.createElement('button'); rm.className = 'prm'; rm.type = 'button'; rm.textContent = '×';
+          rm.setAttribute('aria-label', 'Remove ' + p.email);
+          rm.addEventListener('click', () => removePerson(p.id, p.email));
+          li.append(rm);
+        }
+        ul.appendChild(li);
+      });
+      el('shCount').textContent = String(rows.length);
+    }
+    function addInvite(){
+      const e = el('shEmail').value.trim().toLowerCase(); const hint = el('shInviteHint');
+      if(!EMAIL_RE.test(e)){ hint.classList.add('bad'); hint.textContent = 'Enter a valid email address.'; return; }
+      if(cur.people.some(p => (p.email || '').toLowerCase() === e) || e === OWNER_EMAIL.toLowerCase()){ showToast(e + ' already has access'); el('shEmail').value = ''; return; }
+      api('POST', '/artifacts/' + encodeURIComponent(cur.slug) + '/grants', {email:e}).then(r => {
+        if(!r.ok) throw 0;
+        cur.people.push({ id:e, email:e, sub:'' }); renderPeople(); showToast('Invited ' + e);
+        el('shEmail').value = ''; hint.classList.remove('bad'); hint.textContent = 'They get access after signing in with their work account.';
+      }).catch(() => showToast('Could not invite ' + e));
+    }
+    function removePerson(id, email){
+      api('DELETE', '/artifacts/' + encodeURIComponent(cur.slug) + '/grants/' + encodeURIComponent(id)).then(r => {
+        if(!r.ok) throw 0;
+        cur.people = cur.people.filter(p => p.id !== id); renderPeople(); showToast('Removed ' + email);
+      }).catch(() => showToast('Could not remove ' + email));
+    }
+
+    function validateLabel(){
+      const v = el('shLabel').value.trim().toLowerCase(); el('shLabel').value = v;
+      const badge = el('shAvail'), wrap = el('shInpwrap'), hint = el('shLabelHint'), claim = el('shClaim');
+      let state, msg;
+      if(v === '')            { state='idle';    msg='Optional — a memorable name for the URL.'; }
+      else if(v === cur.label){ state='claimed'; msg='This name is claimed for this artifact.'; }
+      else if(!LABEL_RE.test(v)){ state='bad';   msg='Only lower-case letters, numbers and hyphens; no leading or trailing hyphen.'; }
+      else if(RESERVED.has(v)){ state='bad';     msg='“' + v + '” is reserved.'; }
+      else                    { state='ok';      msg='Available to claim.'; }
+      wrap.classList.toggle('ok', state === 'ok' || state === 'claimed'); wrap.classList.toggle('bad', state === 'bad');
+      hint.classList.toggle('bad', state === 'bad'); hint.textContent = msg;
+      badge.className = 'badge';
+      if(state === 'ok'){ badge.textContent = 'available'; badge.classList.add('ok'); badge.hidden = false; }
+      else if(state === 'claimed'){ badge.textContent = 'claimed ✓'; badge.classList.add('ok'); badge.hidden = false; }
+      else if(state === 'bad'){ badge.textContent = 'unavailable'; badge.classList.add('bad'); badge.hidden = false; }
+      else badge.hidden = true;
+      claim.disabled = state !== 'ok';
+      claim.textContent = state === 'claimed' ? 'Claimed' : 'Claim name';
+      el('shClaimNote').textContent = (state === 'claimed' && cur.root) ? ('→ ' + cur.label + '.' + cur.root) : '';
+    }
+    function claimLabel(){
+      const v = el('shLabel').value.trim().toLowerCase();
+      api('PATCH', '/artifacts/' + encodeURIComponent(cur.slug) + '/label', {label:v}).then(r => {
+        if(r.status === 409){ showToast('“' + v + '” is already taken'); return; }
+        if(r.status === 400){ showToast('That name isn’t allowed'); return; }
+        if(!r.ok) throw 0;
+        cur.label = v; validateLabel(); showToast('Claimed ' + v + '.' + cur.root);
+      }).catch(() => showToast('Could not claim name'));
+    }
+
+    document.querySelectorAll('.share').forEach(b => b.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); openShare(b.dataset.slug, b.dataset.title); }));
+    el('shSeg').addEventListener('click', e => { const b = e.target.closest('button[data-v]'); if(b) setVis(b.dataset.v); });
+    el('shInviteBtn').addEventListener('click', addInvite);
+    el('shEmail').addEventListener('keydown', e => { if(e.key === 'Enter'){ e.preventDefault(); addInvite(); } });
+    el('shEmail').addEventListener('input', () => el('shInviteHint').classList.remove('bad'));
+    el('shLabel').addEventListener('input', validateLabel);
+    el('shClaim').addEventListener('click', claimLabel);
+    el('shAutoCopy').addEventListener('click', () => { const u = 'https://' + cur.slug + '.' + cur.root; if(navigator.clipboard) navigator.clipboard.writeText(u).catch(() => {}); showToast('Copied ' + u); });
+    el('shClose').addEventListener('click', closeShare);
+    el('shDone').addEventListener('click', closeShare);
+    shOv.addEventListener('click', e => { if(e.target === shOv) closeShare(); });
+    document.addEventListener('keydown', e => { if(e.key === 'Escape') closeShare(); });
   </script>
 </body>
 </html>

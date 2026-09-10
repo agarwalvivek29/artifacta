@@ -340,12 +340,18 @@ func (x *ArtifactVersion) GetNote() string {
 }
 
 // Grant is one invitee's access to one artifact (the many-to-many relation).
+// A grant identifies its grantee by immutable subject (grantee_sub) and/or a
+// verified email (grantee_email, ADR-0019). Email lets an owner invite someone
+// who has not signed in yet — before their sub is known; authorization then
+// matches on either. Owners invite by email in the Share UI, so grantee_email is
+// the common case and grantee_sub may be empty until the invitee first appears.
 type Grant struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Slug          string                 `protobuf:"bytes,1,opt,name=slug,proto3" json:"slug,omitempty"`
 	GranteeSub    string                 `protobuf:"bytes,2,opt,name=grantee_sub,json=granteeSub,proto3" json:"grantee_sub,omitempty"`
 	GrantedBy     string                 `protobuf:"bytes,3,opt,name=granted_by,json=grantedBy,proto3" json:"granted_by,omitempty"`
 	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	GranteeEmail  string                 `protobuf:"bytes,5,opt,name=grantee_email,json=granteeEmail,proto3" json:"grantee_email,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -406,6 +412,13 @@ func (x *Grant) GetCreatedAt() *timestamppb.Timestamp {
 		return x.CreatedAt
 	}
 	return nil
+}
+
+func (x *Grant) GetGranteeEmail() string {
+	if x != nil {
+		return x.GranteeEmail
+	}
+	return ""
 }
 
 // Comment is one piece of review feedback on an artifact, pinned to the version
@@ -644,7 +657,7 @@ const file_artifacta_v1_artifact_proto_rawDesc = "" +
 	"created_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12\x1d\n" +
 	"\n" +
 	"created_by\x18\x05 \x01(\tR\tcreatedBy\x12\x12\n" +
-	"\x04note\x18\x06 \x01(\tR\x04note\"\x96\x01\n" +
+	"\x04note\x18\x06 \x01(\tR\x04note\"\xbb\x01\n" +
 	"\x05Grant\x12\x12\n" +
 	"\x04slug\x18\x01 \x01(\tR\x04slug\x12\x1f\n" +
 	"\vgrantee_sub\x18\x02 \x01(\tR\n" +
@@ -652,7 +665,8 @@ const file_artifacta_v1_artifact_proto_rawDesc = "" +
 	"\n" +
 	"granted_by\x18\x03 \x01(\tR\tgrantedBy\x129\n" +
 	"\n" +
-	"created_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\"\xc3\x02\n" +
+	"created_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12#\n" +
+	"\rgrantee_email\x18\x05 \x01(\tR\fgranteeEmail\"\xc3\x02\n" +
 	"\aComment\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04slug\x18\x02 \x01(\tR\x04slug\x12\x18\n" +

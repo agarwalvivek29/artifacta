@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 
 	artifactav1 "github.com/agarwalvivek29/here.now/packages/schema/generated/go/artifacta/v1"
@@ -263,6 +264,40 @@ func (s *FileStore) Grants(slug string) ([]*artifactav1.Grant, error) {
 		}
 	}
 	return out, nil
+}
+
+// RemoveGrant revokes access on slug for the grantee identified by id, matching
+// either the grantee's subject or their email (case-insensitive). The bool
+// reports whether any grant was removed (a miss is not an error). Revoking a
+// grant is the inverse of AddGrant; both persist the full grant list.
+func (s *FileStore) RemoveGrant(slug, id string) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	kept := s.grants[:0:0]
+	removed := false
+	for _, g := range s.grants {
+		match := g.GetSlug() == slug &&
+			((g.GetGranteeSub() != "" && g.GetGranteeSub() == id) ||
+				(g.GetGranteeEmail() != "" && strings.EqualFold(g.GetGranteeEmail(), id)))
+		if match {
+			removed = true
+			continue
+		}
+		kept = append(kept, g)
+	}
+	if !removed {
+		return false, nil
+	}
+	s.grants = kept
+	out := make([]json.RawMessage, 0, len(s.grants))
+	for _, gr := range s.grants {
+		b, err := protojson.Marshal(gr)
+		if err != nil {
+			return false, err
+		}
+		out = append(out, b)
+	}
+	return true, writeJSON(s.grantsPath(), out)
 }
 
 // AddVersion appends one immutable artifact version and persists the version

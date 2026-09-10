@@ -72,11 +72,17 @@ message ArtifactVersion {
 }
 
 // Grant is one invitee's access to one artifact (the many-to-many relation).
+// A grant identifies its grantee by immutable subject (grantee_sub) and/or a
+// verified email (grantee_email, ADR-0019). Email lets an owner invite someone
+// who has not signed in yet — before their sub is known; authorization then
+// matches on either. Owners invite by email in the Share UI, so grantee_email is
+// the common case and grantee_sub may be empty until the invitee first appears.
 message Grant {
   string slug = 1;
   string grantee_sub = 2;
   string granted_by = 3;
   google.protobuf.Timestamp created_at = 4;
+  string grantee_email = 5;
 }
 
 // Comment is one piece of review feedback on an artifact, pinned to the version

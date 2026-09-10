@@ -19,9 +19,14 @@ type Config struct {
 	// that artifact and serve its bytes at the subdomain root. Empty disables
 	// subdomain routing entirely — path-based /a/{slug} is unaffected either way.
 	RootDomain string `json:"root_domain"`
-	Token      string `json:"token"`
-	Sub        string `json:"sub"`
-	Email      string `json:"email"`
+	// OrgName and LogoURL brand the dashboard/viewer chrome for the operator's
+	// organization (cosmetic). LogoURL is an image URL shown in the navbar; OrgName
+	// is the wordmark beside it. Both empty falls back to the ArtifactA wordmark.
+	OrgName string `json:"org_name"`
+	LogoURL string `json:"logo_url"`
+	Token   string `json:"token"`
+	Sub     string `json:"sub"`
+	Email   string `json:"email"`
 	// OIDC browser-SSO settings (ADR-0007, FR6). When OIDCIssuer + OIDCClientID
 	// are set, the server wires the OIDC provider and its /login + /callback
 	// handlers; otherwise it falls back to the Local single-token adapter.
@@ -91,6 +96,8 @@ func applyEnv(c *Config) {
 	setFromEnv("ARTIFACTA_BASE_URL", &c.BaseURL)
 	setFromEnv("ARTIFACTA_DATA_DIR", &c.DataDir)
 	setFromEnv("ARTIFACTA_ROOT_DOMAIN", &c.RootDomain)
+	setFromEnv("ARTIFACTA_ORG_NAME", &c.OrgName)
+	setFromEnv("ARTIFACTA_LOGO_URL", &c.LogoURL)
 	setFromEnv("ARTIFACTA_OIDC_ISSUER", &c.OIDCIssuer)
 	setFromEnv("ARTIFACTA_OIDC_CLIENT_ID", &c.OIDCClientID)
 	setFromEnv("ARTIFACTA_OIDC_CLIENT_SECRET", &c.OIDCClientSecret)

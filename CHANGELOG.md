@@ -16,5 +16,5 @@ First tagged release of **ArtifactA** — a self-hostable host for AI-generated 
 
 ### Distribution
 
-- Multi-arch **Docker image** on `ghcr.io/agarwalvivek29/artifacta` (the image runs the server and contains the CLI).
+- Multi-arch **Docker images** on GHCR: `ghcr.io/agarwalvivek29/artifacta` (server; also contains the CLI) and `ghcr.io/agarwalvivek29/artifacta-cli` (slim, CLI-only, for CI/scripts).
 - Cross-platform **CLI binaries** (macOS/Linux/Windows, amd64/arm64) attached to the GitHub Release, with checksums.

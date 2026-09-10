@@ -29,7 +29,8 @@ RUN cd services/artifacta-api && \
 # A writable data dir owned by the distroless nonroot uid (65532).
 RUN mkdir -p /out/data && chown 65532:65532 /out/data
 
-FROM gcr.io/distroless/static:nonroot
+# Default target: the server (also contains the CLI).
+FROM gcr.io/distroless/static:nonroot AS server
 COPY --from=build /out/artifacta /artifacta
 COPY --from=build --chown=65532:65532 /out/data /data
 ENV ARTIFACTA_ADDR=:8080 ARTIFACTA_DATA_DIR=/data
@@ -38,3 +39,11 @@ VOLUME ["/data"]
 USER 65532:65532
 ENTRYPOINT ["/artifacta"]
 CMD ["serve"]
+
+# Slim CLI-only target (same binary, no server defaults) for CI/scripts:
+#   docker run --rm ghcr.io/agarwalvivek29/artifacta-cli publish ./file.html
+FROM gcr.io/distroless/static:nonroot AS cli
+COPY --from=build /out/artifacta /artifacta
+USER 65532:65532
+ENTRYPOINT ["/artifacta"]
+CMD ["help"]

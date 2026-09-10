@@ -33,6 +33,8 @@ type Store interface {
 	PutArtifact(a *artifactav1.Artifact) error
 	Grants(slug string) ([]*artifactav1.Grant, error)
 	AddGrant(g *artifactav1.Grant) error
+	// RemoveGrant revokes a grant by grantee subject or email (FR13, ADR-0019).
+	RemoveGrant(slug, id string) (bool, error)
 	Append(ev *artifactav1.AuditEvent) error
 	// Versioning (ADR-0013): immutable versions per artifact.
 	AddVersion(v *artifactav1.ArtifactVersion) error
@@ -73,6 +75,10 @@ type Server struct {
 	// its root. It also lets the API report each artifact's subdomain URL. Empty
 	// disables subdomain routing; path-based /a/{slug} is unaffected either way.
 	RootDomain string
+	// OrgName and LogoURL let an operator brand the dashboard/viewer chrome for
+	// their organization (cosmetic). Empty falls back to the ArtifactA wordmark.
+	OrgName string
+	LogoURL string
 	// OIDC, when non-nil, provides browser SSO (ADR-0007): its Login/Callback
 	// handlers replace the dev cookie-setter and it is the request authenticator.
 	// When nil, the server uses the dev /login helper and the Local adapter.
@@ -125,6 +131,7 @@ func (s *Server) Routes() http.Handler {
 	// unauthenticated caller gets 401 and a non-owner (or unknown slug) gets a
 	// 404 that never distinguishes "missing" from "not yours".
 	mux.Handle("POST /artifacts/{slug}/grants", rateLimit(http.HandlerFunc(s.addGrant), contentPerMinute))
+	mux.Handle("DELETE /artifacts/{slug}/grants/{grantee}", rateLimit(http.HandlerFunc(s.removeGrant), contentPerMinute))
 	mux.Handle("PATCH /artifacts/{slug}/visibility", rateLimit(http.HandlerFunc(s.setVisibility), contentPerMinute))
 	// Custom subdomain label (ADR-0017): owner-only claim of a {label}.{root} host.
 	mux.Handle("PATCH /artifacts/{slug}/label", rateLimit(http.HandlerFunc(s.setLabel), contentPerMinute))
@@ -189,9 +196,16 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := web.DashboardData{
-		Email:  who.GetEmail(),
-		Mine:   toViews(mine),
-		Shared: toViews(shared),
+		Email:   who.GetEmail(),
+		OrgName: s.OrgName,
+		LogoURL: s.LogoURL,
+		Mine:    toViews(mine),
+		Shared:  toViews(shared),
+	}
+	// Mine artifacts are owned by the caller — mark them so the dashboard shows the
+	// owner-only Share control on those cards.
+	for i := range data.Mine {
+		data.Mine[i].IsOwner = true
 	}
 	// Org lists org-visible artifacts owned by someone else — the caller's own
 	// org artifacts already appear under Mine.
@@ -625,24 +639,51 @@ func (s *Server) metadata(w http.ResponseWriter, r *http.Request) {
 		vs = append(vs, vv)
 	}
 
+	isOwner := who != nil && who.GetSub() == art.GetOwnerSub()
+
+	// Grantees power the Share panel's "people with access" list. Owner-only: the
+	// list of who an artifact is shared with is itself sensitive. `id` is the
+	// stable handle the revoke endpoint takes (email preferred, else subject).
+	type granteeView struct {
+		ID    string `json:"id"`
+		Email string `json:"email,omitempty"`
+		Sub   string `json:"sub,omitempty"`
+	}
+	var grantees []granteeView
+	if isOwner {
+		grantees = make([]granteeView, 0, len(grants))
+		for _, g := range grants {
+			id := g.GetGranteeEmail()
+			if id == "" {
+				id = g.GetGranteeSub()
+			}
+			grantees = append(grantees, granteeView{ID: id, Email: g.GetGranteeEmail(), Sub: g.GetGranteeSub()})
+		}
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"slug":           art.GetSlug(),
 		"title":          art.GetTitle(),
 		"visibility":     visibilityLabel(art.GetVisibility()),
 		"latest_version": art.GetLatestVersion(),
-		"is_owner":       who != nil && who.GetSub() == art.GetOwnerSub(),
+		"is_owner":       isOwner,
 		"versions":       vs,
 		// Subdomain hosting (ADR-0017): the custom label (if any) and the absolute
 		// subdomain URL. subdomain_url is "" when RootDomain is not configured.
 		"label":         art.GetLabel(),
 		"subdomain_url": s.subdomainURL(subdomainHost(art)),
+		"root_domain":   s.RootDomain, // "" when subdomain hosting is disabled
+		// People with access (owner-only; nil/omitted for non-owners).
+		"grantees": grantees,
 	})
 }
 
-// addGrant (FR12) grants a subject access to an artifact. Owner-only. The
-// grantee subject comes from the JSON body {"grantee_sub":"..."} or a ?grantee=
-// query param. A SHARE audit event is written on success. Returns 201.
+// addGrant (FR12) grants a person access to an artifact. Owner-only. The grantee
+// is taken from the JSON body: {"email":"..."} to invite by verified email
+// (ADR-0019, the Share-UI path) or {"grantee_sub":"..."} for a known subject; a
+// ?grantee= query param is still accepted as a subject. A duplicate invite is a
+// no-op success. A SHARE audit event is written on success. Returns 201.
 func (s *Server) addGrant(w http.ResponseWriter, r *http.Request) {
 	slug := r.PathValue("slug")
 	_, who, ok := s.ownedArtifact(w, r, slug)
@@ -650,25 +691,43 @@ func (s *Server) addGrant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	grantee := r.URL.Query().Get("grantee")
-	if grantee == "" {
-		var body struct {
-			GranteeSub string `json:"grantee_sub"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err == nil {
-			grantee = body.GranteeSub
-		}
+	var body struct {
+		Email      string `json:"email"`
+		GranteeSub string `json:"grantee_sub"`
 	}
-	if grantee == "" {
+	_ = json.NewDecoder(r.Body).Decode(&body)
+	sub := strings.TrimSpace(body.GranteeSub)
+	if sub == "" {
+		sub = strings.TrimSpace(r.URL.Query().Get("grantee"))
+	}
+	email := strings.ToLower(strings.TrimSpace(body.Email))
+	if email != "" && !validEmail(email) {
+		http.Error(w, "invalid email", http.StatusBadRequest)
+		return
+	}
+	if sub == "" && email == "" {
 		http.Error(w, "missing grantee", http.StatusBadRequest)
 		return
 	}
 
+	// Idempotent: if this subject/email is already granted, succeed without a
+	// duplicate row so the Share UI's "invite" is safe to retry.
+	if grants, err := s.Store.Grants(slug); err == nil {
+		for _, g := range grants {
+			if (sub != "" && g.GetGranteeSub() == sub) ||
+				(email != "" && strings.EqualFold(g.GetGranteeEmail(), email)) {
+				w.WriteHeader(http.StatusCreated)
+				return
+			}
+		}
+	}
+
 	g := &artifactav1.Grant{
-		Slug:       slug,
-		GranteeSub: grantee,
-		GrantedBy:  who.GetSub(),
-		CreatedAt:  timestamppb.Now(),
+		Slug:         slug,
+		GranteeSub:   sub,
+		GranteeEmail: email,
+		GrantedBy:    who.GetSub(),
+		CreatedAt:    timestamppb.Now(),
 	}
 	if err := s.Store.AddGrant(g); err != nil {
 		http.Error(w, "unavailable", http.StatusInternalServerError)
@@ -676,6 +735,47 @@ func (s *Server) addGrant(w http.ResponseWriter, r *http.Request) {
 	}
 	s.audit(who, slug, artifactav1.AuditAction_AUDIT_ACTION_SHARE, true)
 	w.WriteHeader(http.StatusCreated)
+}
+
+// removeGrant (FR13) revokes a person's access. Owner-only via the same
+// fail-closed gate. The {grantee} path segment is a subject or an email; an
+// unknown grantee is a 404. A SHARE audit event is written on success. Returns 200.
+func (s *Server) removeGrant(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+	_, who, ok := s.ownedArtifact(w, r, slug)
+	if !ok {
+		return
+	}
+	grantee, err := url.PathUnescape(r.PathValue("grantee"))
+	if err != nil || grantee == "" {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	found, err := s.Store.RemoveGrant(slug, grantee)
+	if err != nil {
+		http.Error(w, "unavailable", http.StatusInternalServerError)
+		return
+	}
+	if !found {
+		http.NotFound(w, r)
+		return
+	}
+	s.audit(who, slug, artifactav1.AuditAction_AUDIT_ACTION_SHARE, true)
+	w.WriteHeader(http.StatusOK)
+}
+
+// validEmail is a deliberately permissive check: a single @ with non-empty,
+// dot-bearing local and domain parts and no spaces. The IdP is the real
+// authority on address validity; this only rejects obvious junk.
+func validEmail(s string) bool {
+	at := strings.IndexByte(s, '@')
+	if at <= 0 || at != strings.LastIndexByte(s, '@') || at == len(s)-1 {
+		return false
+	}
+	if strings.ContainsAny(s, " \t\r\n") {
+		return false
+	}
+	return strings.Contains(s[at+1:], ".")
 }
 
 // setVisibility (FR13) changes an artifact's visibility. Owner-only. The body is

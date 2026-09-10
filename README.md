@@ -16,13 +16,13 @@ access control, and a tamper-evident audit trail all stay on infra you control.
 
 ## At a glance
 
-|                          |                                                                                                                   |
-| ------------------------ | ----------------------------------------------------------------------------------------------------------------- |
-| **What it is**           | A self-hostable service that stores and serves AI-generated artifacts behind your own auth.                       |
-| **The problem it kills** | AI share links persist sensitive data (PII, internal analytics, dashboards) on a vendor's cloud you don't govern. |
-| **What you get**         | A private `/a/{slug}` link, per-artifact RBAC, a hash-chained audit trail — all on your infra.                    |
-| **Shape**                | One Go binary: a CLI **and** a sandboxed viewer server. Zero external deps to start.                              |
-| **Status**               | v0 "wedge" — publish + private-by-default viewer. Dogfooding now.                                                 |
+|                          |                                                                                                                                                     |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **What it is**           | A self-hostable service that stores and serves AI-generated artifacts behind your own auth.                                                         |
+| **The problem it kills** | AI share links persist sensitive data (PII, internal analytics, dashboards) on a vendor's cloud you don't govern.                                   |
+| **What you get**         | A private `/a/{slug}` link, per-artifact RBAC, a hash-chained audit trail — all on your infra.                                                      |
+| **Shape**                | One Go binary: a CLI **and** a sandboxed viewer server. Zero external deps to start.                                                                |
+| **Status**               | **v0.0.1 released** — publish, owner Share UI, subdomain hosting, invite-by-email, selectable file/Postgres store. Images + CLI on GHCR & Releases. |
 
 ---
 
@@ -48,11 +48,14 @@ audited, and expired entirely on infrastructure the operator owns.
 - 🚀 **One-command publish** — `artifacta publish <file>` returns a private link. Time-to-first-shared-link < ~2 min.
 - 🔒 **Private by default** — every artifact is owner-only until you share it. Visibility: `PRIVATE` → `INVITED` → `ORG` → `LINK`.
 - 🌐 **Subdomain hosting + no-login sharing** — serve a page at `{slug}.your-root` (or a custom `{label}.your-root`); the `LINK` level drops the login requirement for internal, VPN-gated hosting ([ADR-0017](docs/adr/0017-subdomain-artifact-addressing.md), [ADR-0018](docs/adr/0018-anonymous-vpn-gated-visibility.md)).
-- 👥 **Per-artifact RBAC** — the allow/deny decision runs in the app, per artifact; grants bind to an immutable identity subject.
+- 🤝 **Owner Share UI** — a dialog on each artifact to set visibility, **invite teammates by email**, and claim a subdomain, no CLI needed ([ADR-0019](docs/adr/0019-invite-by-email-grants.md)).
+- 👥 **Per-artifact RBAC** — the allow/deny decision runs in the app, per artifact; grants bind to an immutable subject **or a verified email**.
 - 🧾 **Inbuilt tamper-evident audit** — who-viewed-what, hash-chained in the app's own store, never routed to an external system.
 - 🖼️ **Sandboxed viewer** — artifacts render in a null-origin, strict-CSP iframe with quality on par with the vendor viewer.
 - 🕓 **Immutable versioning** — `artifacta publish --update <slug>` appends a new version; old versions stay addressable.
 - 💬 **Anchored, threaded comments** — comment on selected text, pinned to a version, gated by view access.
+- 🎨 **Per-deployment branding** — drop your org's logo and name in the navbar so it reads as your own tool.
+- 🗄️ **Pluggable storage** — start on the zero-dep file store; flip to **Postgres** (GORM, schema auto-migrates on startup) for horizontal scale, one env var ([ADR-0009](docs/adr/0009-postgres-store-adapter.md)).
 - 🤖 **Assistant-agnostic** — publish from a CLI, REST API, MCP connector, or an assistant Skill (Claude & others).
 
 ---
@@ -125,7 +128,8 @@ Regenerate schema types after editing proto: `cd packages/schema && ./scripts/ge
 | `artifacta share <slug> <grantee-sub>`     | Share with a subject (sets visibility to `INVITED`)    |
 | `artifacta ls`                             | List your artifacts                                    |
 | `artifacta serve`                          | Run the viewer server                                  |
-| `artifacta audit verify`                   | Verify the audit-log hash chain                        |
+| `artifacta audit verify`                   | Verify the audit-log hash chain (file or Postgres)     |
+| `artifacta version`                        | Print the build version                                |
 
 ---
 
@@ -145,13 +149,13 @@ viewer/REST server — trivial to self-host, low footprint.
 All domain types are defined in **protobuf** (`packages/schema/proto/artifacta/v1/`), generated to Go, and
 imported by the service — **never redefined in service code**.
 
-| Entity                   | Key fields                                           | Notes                                               |
-| ------------------------ | ---------------------------------------------------- | --------------------------------------------------- |
-| `Artifact`               | slug, owner_sub, visibility, content_type            | Visibility `PRIVATE → INVITED → ORG` (owner-set)    |
-| `ArtifactVersion`        | immutable versions                                   | Explicit `--update` appends; nothing is overwritten |
-| `Grant`                  | slug, grantee_sub (immutable), granted_by            | Emits a `SHARE` audit event                         |
-| `Comment` + `TextAnchor` | version-pinned, view-gated                           | Anchored to selected text; threaded replies         |
-| `AuditEvent`             | seq, principal_sub, action, allowed, prev_hash, hash | Append-only **hash chain**                          |
+| Entity                   | Key fields                                           | Notes                                                                   |
+| ------------------------ | ---------------------------------------------------- | ----------------------------------------------------------------------- |
+| `Artifact`               | slug, owner_sub, visibility, content_type, label     | Visibility `PRIVATE → INVITED → ORG → LINK`; optional subdomain `label` |
+| `ArtifactVersion`        | immutable versions                                   | Explicit `--update` appends; nothing is overwritten                     |
+| `Grant`                  | slug, grantee_sub and/or grantee_email, granted_by   | Invite by subject or verified email; emits a `SHARE` audit event        |
+| `Comment` + `TextAnchor` | version-pinned, view-gated                           | Anchored to selected text; threaded replies                             |
+| `AuditEvent`             | seq, principal_sub, action, allowed, prev_hash, hash | Append-only **hash chain**                                              |
 
 ### Security model — the whole point
 
@@ -168,7 +172,7 @@ imported by the service — **never redefined in service code**.
 | ------- | ------------------------------------------------- | --------------------------------------------- |
 | Backend | Go (single CLI + server binary)                   | Trivial self-host, low footprint              |
 | Schema  | Protobuf + buf (Go codegen)                       | One source of truth for domain types          |
-| Store   | File (v0) → PostgreSQL                            | Relational grants + "shared with me" at scale |
+| Store   | File **or** PostgreSQL (`ARTIFACTA_STORE`)        | Deployer's choice; GORM auto-migrates on boot |
 | Blob    | Filesystem (v0) → S3-compatible                   | Operator-controlled bundle storage            |
 | Viewer  | Embedded sandboxed HTML → forked artifact-runtime | Render parity with the vendor viewer          |
 | Infra   | Docker Compose (default) → Helm                   | Self-host simplicity first                    |
@@ -201,18 +205,22 @@ The reasoning behind the architecture lives in [`docs/adr/`](docs/adr/). Highlig
 | [0006](docs/adr/0006-s3-blob-adapter-backend-only.md)                               | S3-compatible blob adapter, backend-only (no presigned URLs)   |
 | [0007](docs/adr/0007-identity-and-auth.md)                                          | OIDC browser SSO + CLI loopback-PKCE + assistant-rides-session |
 | [0008](docs/adr/0008-separate-content-origin.md)                                    | Serve artifact bytes from a separate, cookieless origin        |
+| [0009](docs/adr/0009-postgres-store-adapter.md)                                     | Selectable file/Postgres store (GORM, auto-migrating)          |
 | [0011](docs/adr/0011-vpn-fronted-threat-model.md)                                   | VPN-fronted deployment threat model                            |
 | [0012](docs/adr/0012-assistant-agnostic-publish-surfaces.md)                        | Assistant-agnostic publish (API + CLI + MCP + Skill)           |
 | [0013](docs/adr/0013-artifact-versioning.md)                                        | Immutable versions, explicit update                            |
 | [0014](docs/adr/0014-artifact-comments.md)–[0016](docs/adr/0016-comment-threads.md) | Version-pinned, anchored, threaded comments                    |
+| [0017](docs/adr/0017-subdomain-artifact-addressing.md)                              | Subdomain artifact addressing (`{slug\|label}.{root}`)         |
+| [0018](docs/adr/0018-anonymous-vpn-gated-visibility.md)                             | Anonymous, VPN-gated `LINK` visibility (no-login sharing)      |
+| [0019](docs/adr/0019-invite-by-email-grants.md)                                     | Invite-by-email grants (subject or verified email)             |
 
 ---
 
 ## Roadmap
 
-- **Now (v1)** — publish + private-by-default viewer (the wedge); dogfood with real users.
-- **Next (v2)** — Share/RBAC UI + OIDC/forward-auth adapters.
-- **Later** — remote MCP connector, scale adapters (S3 / Postgres / Helm), rendering-parity fork.
+- **Shipped (v0.0.1)** — publish + private-by-default viewer, owner Share UI, subdomain hosting + no-login `LINK`, invite-by-email, per-org branding, selectable **file/Postgres** store, OIDC SSO + CLI loopback-PKCE, released images + CLI.
+- **Next** — S3-compatible blob adapter (the last piece for fully stateless multi-replica), Helm chart, Go module-path cleanup (`here.now` → `artifacta`).
+- **Later** — remote MCP connector, standalone rendering-parity frontend (the `apps/` fork).
 
 ---
 
@@ -237,6 +245,6 @@ Start with **[docs/CORE_RULES.md](docs/CORE_RULES.md)** and **[docs/CONVENTIONS.
 
 ---
 
-<sub>**Naming:** the product, CLI (`artifacta`), service (`artifacta-api`), and proto package (`artifacta.v1`) are all
-**artifacta**. The Git repo / Go module base remains `github.com/agarwalvivek29/here.now` — renaming that means
-renaming the GitHub repository, a separate step.</sub>
+<sub>**Naming:** the product, GitHub repo, CLI (`artifacta`), service (`artifacta-api`), and proto package
+(`artifacta.v1`) are all **artifacta**. The Go **module path** still uses the legacy `github.com/agarwalvivek29/here.now`
+base — a mechanical rename tracked in the roadmap; imports keep resolving via GitHub's redirect until then.</sub>

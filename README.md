@@ -81,6 +81,21 @@ flowchart LR
 
 ---
 
+## Install the CLI
+
+macOS / Linux — one line (detects your OS/arch, verifies the checksum):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/agarwalvivek29/artifacta/main/install.sh | sh
+```
+
+Pin a version or install location with `ARTIFACTA_VERSION` / `ARTIFACTA_INSTALL_DIR`. Or grab a
+binary from the [latest release](https://github.com/agarwalvivek29/artifacta/releases/latest)
+(Windows included). Prefer containers? `ghcr.io/agarwalvivek29/artifacta` (server + CLI) and
+`ghcr.io/agarwalvivek29/artifacta-cli` (slim CLI).
+
+---
+
 ## Quick start
 
 ```bash

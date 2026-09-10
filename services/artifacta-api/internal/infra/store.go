@@ -424,6 +424,14 @@ func (s *FileStore) Append(ev *artifactav1.AuditEvent) error {
 	return err
 }
 
+// AuditEvents returns every audit row in seq order, so `audit verify` can check
+// the chain through the Store interface (consistent with the postgres backend).
+func (s *FileStore) AuditEvents() ([]*artifactav1.AuditEvent, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return readAuditLog(s.dir)
+}
+
 func hashEvent(ev *artifactav1.AuditEvent) string {
 	payload := fmt.Sprintf("%d|%s|%s|%s|%s|%t|%s",
 		ev.GetSeq(), ev.GetTs().AsTime().UTC().Format("2006-01-02T15:04:05.000000000Z07:00"),

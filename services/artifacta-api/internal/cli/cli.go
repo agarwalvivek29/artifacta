@@ -664,7 +664,15 @@ func audit(args []string) error {
 	if err != nil {
 		return err
 	}
-	n, err := infra.VerifyAuditLog(filepath.Join(c.DataDir, "meta"))
+	st, _, err := open(c)
+	if err != nil {
+		return err
+	}
+	events, err := st.AuditEvents()
+	if err != nil {
+		return err
+	}
+	n, err := infra.VerifyChain(events)
 	if err != nil {
 		return err
 	}

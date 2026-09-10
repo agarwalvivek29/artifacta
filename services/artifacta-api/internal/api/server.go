@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -756,17 +757,26 @@ func (s *Server) setLabel(w http.ResponseWriter, r *http.Request) {
 
 // subdomainURL returns the absolute URL at which a subdomain host (a slug or a
 // custom label) serves an artifact, or "" when subdomain hosting is disabled
-// (RootDomain empty) or sub is empty. The scheme mirrors BaseURL — https in real
-// deploys, http only when BaseURL is explicitly http (local dev).
+// (RootDomain empty) or sub is empty. Scheme and any non-default port are taken
+// from BaseURL: https by default, http when BaseURL is http, and a non-standard
+// port (e.g. :8080 in local/dev or behind a non-443 proxy) is preserved so the
+// URL is actually reachable. The standard port for the scheme (80/443) is omitted.
 func (s *Server) subdomainURL(sub string) string {
 	if s.RootDomain == "" || sub == "" {
 		return ""
 	}
-	scheme := "https"
-	if strings.HasPrefix(strings.ToLower(s.BaseURL), "http://") {
-		scheme = "http"
+	scheme, port := "https", ""
+	if u, err := url.Parse(s.BaseURL); err == nil {
+		if u.Scheme != "" {
+			scheme = u.Scheme
+		}
+		port = u.Port()
 	}
-	return scheme + "://" + sub + "." + s.RootDomain
+	host := sub + "." + s.RootDomain
+	if port != "" && !(scheme == "https" && port == "443") && !(scheme == "http" && port == "80") {
+		host += ":" + port
+	}
+	return scheme + "://" + host
 }
 
 // subdomainHost returns the preferred subdomain host for an artifact: its custom

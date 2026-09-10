@@ -13,6 +13,28 @@ import (
 
 const testRoot = "artifacta.genorim.xyz"
 
+// subdomainURL derives scheme + any non-default port from BaseURL so the reported
+// URL is actually reachable behind a non-443 proxy or in local dev.
+func TestSubdomainURL(t *testing.T) {
+	cases := []struct {
+		baseURL, root, sub, want string
+	}{
+		{"https://artifacta.genorim.xyz", testRoot, "demo", "https://demo.artifacta.genorim.xyz"},
+		{"https://artifacta.genorim.xyz:443", testRoot, "demo", "https://demo.artifacta.genorim.xyz"}, // std port dropped
+		{"http://gridlords.dev:8080", "gridlords.dev", "demo", "http://demo.gridlords.dev:8080"},      // non-std port kept
+		{"http://gridlords.dev:80", "gridlords.dev", "demo", "http://demo.gridlords.dev"},             // std http port dropped
+		{"", testRoot, "demo", "https://demo.artifacta.genorim.xyz"},                                  // unparseable → https default
+		{"https://x", "", "demo", ""},   // hosting disabled
+		{"https://x", testRoot, "", ""}, // no sub
+	}
+	for _, c := range cases {
+		s := &Server{BaseURL: c.baseURL, RootDomain: c.root}
+		if got := s.subdomainURL(c.sub); got != c.want {
+			t.Errorf("subdomainURL(base=%q root=%q sub=%q) = %q, want %q", c.baseURL, c.root, c.sub, got, c.want)
+		}
+	}
+}
+
 // newSubdomainServer is newTestServer with subdomain hosting (ADR-0017) enabled.
 func newSubdomainServer(t *testing.T, auth Auth) *Server {
 	t.Helper()

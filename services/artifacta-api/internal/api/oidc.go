@@ -3,7 +3,10 @@ package api
 import (
 	"context"
 	"crypto/rand"
+	"errors"
 	"net/http"
+	"strings"
+	"unicode"
 
 	artifactav1 "github.com/agarwalvivek29/here.now/packages/schema/generated/go/artifacta/v1"
 	"github.com/coreos/go-oidc/v3/oidc"
@@ -141,6 +144,17 @@ func (p *OIDCProvider) Callback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// An IdP that refuses the request (user denied consent, invalid scope, IdP
+	// outage, …) redirects back with ?error=<code>, usually ?error_description=
+	// <text>, and NO authorization code (RFC 6749 §4.1.2.1). Surface those —
+	// otherwise the flow falls through to exchanging an absent code and reports a
+	// misleading "token exchange failed". State is validated above first, so this
+	// only trusts an error returned on our own CSRF-checked flow.
+	if oauthErr := r.URL.Query().Get("error"); oauthErr != "" {
+		http.Error(w, "login failed: "+oauthErrorMessage(oauthErr, r.URL.Query().Get("error_description")), http.StatusUnauthorized)
+		return
+	}
+
 	vc, err := r.Cookie(verifierCookie)
 	if err != nil {
 		http.Error(w, "bad verifier", http.StatusBadRequest)
@@ -155,7 +169,7 @@ func (p *OIDCProvider) Callback(w http.ResponseWriter, r *http.Request) {
 	// Exchange the code; the PKCE verifier proves this client started the flow.
 	tok, err := p.oauth.Exchange(r.Context(), r.URL.Query().Get("code"), oauth2.VerifierOption(verifier))
 	if err != nil {
-		http.Error(w, "token exchange failed", http.StatusBadGateway)
+		http.Error(w, "login failed: "+exchangeErrorMessage(err), http.StatusBadGateway)
 		return
 	}
 	rawID, ok := tok.Extra("id_token").(string)
@@ -202,4 +216,52 @@ func (p *OIDCProvider) clearFlowCookie(w http.ResponseWriter, name string) {
 		Name: name, Value: "", Path: "/", MaxAge: -1,
 		HttpOnly: true, Secure: p.secure, SameSite: http.SameSiteLaxMode,
 	})
+}
+
+// oauthErrorMessage renders an OAuth 2.0 error (RFC 6749) for a text/plain
+// response: the error code plus its human-readable description when present. Both
+// values originate from the IdP; the caller writes them via http.Error (a
+// text/plain body, never HTML), and this clamps and de-controls them so a hostile
+// or oversized value can neither bloat the response nor inject control characters.
+func oauthErrorMessage(code, desc string) string {
+	code = sanitizeOAuthField(code, 64)
+	desc = sanitizeOAuthField(desc, 256)
+	switch {
+	case code == "" && desc == "":
+		return "unspecified error"
+	case desc == "":
+		return code
+	case code == "":
+		return desc
+	default:
+		return code + ": " + desc
+	}
+}
+
+// exchangeErrorMessage surfaces the token endpoint's own error/description when
+// the code exchange is rejected — oauth2 parses that JSON body (RFC 6749 §5.2)
+// into *oauth2.RetrieveError — and falls back to the generic message for
+// transport-level failures that carry no structured OAuth error.
+func exchangeErrorMessage(err error) string {
+	var re *oauth2.RetrieveError
+	if errors.As(err, &re) && (re.ErrorCode != "" || re.ErrorDescription != "") {
+		return "token exchange rejected: " + oauthErrorMessage(re.ErrorCode, re.ErrorDescription)
+	}
+	return "token exchange failed"
+}
+
+// sanitizeOAuthField trims an IdP-supplied string, collapses any control
+// characters (including CR/LF) to spaces, and truncates it on a rune boundary so
+// it is safe and tidy to echo back to the browser.
+func sanitizeOAuthField(s string, max int) string {
+	s = strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return ' '
+		}
+		return r
+	}, strings.TrimSpace(s))
+	if r := []rune(s); len(r) > max {
+		return strings.TrimSpace(string(r[:max])) + "…"
+	}
+	return s
 }

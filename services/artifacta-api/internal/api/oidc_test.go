@@ -11,6 +11,7 @@ import (
 	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -25,6 +26,10 @@ type mockIDP struct {
 	clientID string
 	sub      string
 	email    string
+	// tokenErr, when non-empty, makes /token return HTTP 400 with this JSON body
+	// (an RFC 6749 §5.2 error response) instead of a token, so tests can drive the
+	// token-endpoint rejection path.
+	tokenErr string
 }
 
 func newMockIDP(t *testing.T, clientID, sub, email string) *mockIDP {
@@ -50,6 +55,12 @@ func newMockIDP(t *testing.T, clientID, sub, email string) *mockIDP {
 		writeJSON(w, map[string]any{"keys": []any{idp.jwk()}})
 	})
 	mux.HandleFunc("/token", func(w http.ResponseWriter, _ *http.Request) {
+		if idp.tokenErr != "" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(idp.tokenErr))
+			return
+		}
 		writeJSON(w, map[string]any{
 			"access_token": "mock-access-token",
 			"token_type":   "Bearer",
@@ -195,6 +206,68 @@ func TestOIDCCallbackRejectsMissingStateCookie(t *testing.T) {
 	p.Callback(cbRR, httptest.NewRequest(http.MethodGet, "/callback?state=x&code=y", nil))
 	if cbRR.Code != http.StatusBadRequest {
 		t.Fatalf("Callback with no state cookie: status = %d, want 400", cbRR.Code)
+	}
+}
+
+// TestOIDCCallbackSurfacesIdPError: when the IdP redirects back with an OAuth
+// error (user denied consent) and no code, the callback surfaces the IdP's own
+// error + error_description — not the misleading generic "token exchange failed".
+func TestOIDCCallbackSurfacesIdPError(t *testing.T) {
+	idp := newMockIDP(t, "test-client", "s", "e@x.co")
+	p := newTestProvider(t, idp)
+
+	loginRR := httptest.NewRecorder()
+	p.Login(loginRR, httptest.NewRequest(http.MethodGet, "/login", nil))
+	flowCookies := readCookies(loginRR)
+	state := cookieValueOpened(t, p, flowCookies, stateCookie)
+
+	// IdP denial: error + error_description on the CSRF-checked flow, no code.
+	cbReq := httptest.NewRequest(http.MethodGet,
+		"/callback?state="+state+"&error=access_denied&error_description=User+declined+the+request", nil)
+	for _, c := range flowCookies {
+		cbReq.AddCookie(c)
+	}
+	cbRR := httptest.NewRecorder()
+	p.Callback(cbRR, cbReq)
+
+	if cbRR.Code != http.StatusUnauthorized {
+		t.Fatalf("callback with IdP error: status = %d, want 401 (body %q)", cbRR.Code, cbRR.Body.String())
+	}
+	body := cbRR.Body.String()
+	if !strings.Contains(body, "access_denied") || !strings.Contains(body, "User declined the request") {
+		t.Fatalf("callback did not surface the IdP error/description: %q", body)
+	}
+	if strings.Contains(body, "token exchange failed") {
+		t.Fatalf("callback still shows the misleading generic message: %q", body)
+	}
+}
+
+// TestOIDCCallbackSurfacesTokenEndpointError: when the token endpoint rejects the
+// exchange with a structured OAuth error (RFC 6749 §5.2), the callback surfaces
+// that error code + description instead of the bare "token exchange failed".
+func TestOIDCCallbackSurfacesTokenEndpointError(t *testing.T) {
+	idp := newMockIDP(t, "test-client", "s", "e@x.co")
+	idp.tokenErr = `{"error":"invalid_grant","error_description":"authorization code expired"}`
+	p := newTestProvider(t, idp)
+
+	loginRR := httptest.NewRecorder()
+	p.Login(loginRR, httptest.NewRequest(http.MethodGet, "/login", nil))
+	flowCookies := readCookies(loginRR)
+	state := cookieValueOpened(t, p, flowCookies, stateCookie)
+
+	cbReq := httptest.NewRequest(http.MethodGet, "/callback?state="+state+"&code=mock-code", nil)
+	for _, c := range flowCookies {
+		cbReq.AddCookie(c)
+	}
+	cbRR := httptest.NewRecorder()
+	p.Callback(cbRR, cbReq)
+
+	if cbRR.Code != http.StatusBadGateway {
+		t.Fatalf("callback with token-endpoint error: status = %d, want 502 (body %q)", cbRR.Code, cbRR.Body.String())
+	}
+	body := cbRR.Body.String()
+	if !strings.Contains(body, "invalid_grant") || !strings.Contains(body, "authorization code expired") {
+		t.Fatalf("callback did not surface the token-endpoint error: %q", body)
 	}
 }
 

@@ -35,6 +35,9 @@ type OIDCProvider struct {
 	oauth    *oauth2.Config
 	verifier *oidc.IDTokenVerifier
 	sessions *Sessions
+	// issuer is the OIDC issuer URL, retained so the CLI discovery endpoint can
+	// hand it back to `artifacta login <url>` (the CLI re-discovers from it).
+	issuer string
 	// secure marks auth cookies Secure so browsers only send them over HTTPS.
 	secure bool
 }
@@ -45,6 +48,32 @@ const (
 	stateCookie    = "hn_oidc_state"
 	verifierCookie = "hn_oidc_verifier"
 )
+
+// cliScopes are the scopes the CLI requests. offline_access asks the IdP for a
+// refresh token so the CLI can mint fresh id_tokens without a new browser login
+// (the browser Login mints its own session cookie and does not request it).
+var cliScopes = []string{oidc.ScopeOpenID, "email", "profile", "offline_access"}
+
+// CLIAuthConfig is the body of GET /.well-known/artifacta-cli: everything
+// `artifacta login <url>` needs to bootstrap the loopback PKCE flow with no
+// hand-configuration. client_id is public (safe to expose); no secret is ever
+// sent — the CLI is a public client authenticating with PKCE alone.
+type CLIAuthConfig struct {
+	Auth     string   `json:"auth"` // "oidc" or "local"
+	Issuer   string   `json:"issuer,omitempty"`
+	ClientID string   `json:"client_id,omitempty"`
+	Scopes   []string `json:"scopes,omitempty"`
+}
+
+// CLILoginConfig returns the OIDC discovery info the CLI needs to log in.
+func (p *OIDCProvider) CLILoginConfig() CLIAuthConfig {
+	return CLIAuthConfig{
+		Auth:     "oidc",
+		Issuer:   p.issuer,
+		ClientID: p.oauth.ClientID,
+		Scopes:   cliScopes,
+	}
+}
 
 // NewOIDCProvider discovers the issuer's endpoints/JWKS and builds a provider.
 // clientSecret and redirectURL come from config/env; sessionSecret keys the
@@ -65,6 +94,7 @@ func NewOIDCProvider(ctx context.Context, issuer, clientID, clientSecret, redire
 		},
 		verifier: provider.Verifier(&oidc.Config{ClientID: clientID}),
 		sessions: NewSessions(sessionSecret),
+		issuer:   issuer,
 		secure:   secure,
 	}, nil
 }

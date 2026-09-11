@@ -1,0 +1,144 @@
+name: artifacta-prod
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Production deployment for artifacta-api (self-host profile).
+#
+# Stands up the full stack: the API server (published GHCR image), a Postgres
+# metadata store, and a private MinIO bucket for artifact bytes. This is the
+# reproducible "launch" unit the ops review flagged as missing — it is SEPARATE
+# from infra/docker-compose.yml (the local-dev scaffold), which is left untouched.
+#
+# Prereqs:
+#   1. Copy services/artifacta-api/.env.example → services/artifacta-api/.env and
+#      fill in the REAL secrets referenced below (never commit .env).
+#   2. Point wildcard DNS + a TLS-terminating reverse proxy at this host if you
+#      use subdomain hosting (ARTIFACTA_ROOT_DOMAIN) — the app serves plain HTTP
+#      on :8080 and expects TLS to be terminated in front of it.
+#
+# Usage:
+#   docker compose -f infra/docker-compose.prod.yml up -d
+#   docker compose -f infra/docker-compose.prod.yml logs -f artifacta-api
+#   docker compose -f infra/docker-compose.prod.yml down          # keeps volumes
+#   docker compose -f infra/docker-compose.prod.yml down -v       # DESTROYS data
+#
+# Durability: pgdata + miniodata are named volumes. They survive `down` but NOT
+# `down -v`. Back them up (volume snapshot / `pg_dump` / bucket sync) — a volume
+# loss loses the artifacts AND the hash-chained audit trail.
+# ─────────────────────────────────────────────────────────────────────────────
+
+networks:
+  artifacta:
+    driver: bridge
+
+volumes:
+  pgdata:
+  miniodata:
+
+services:
+  # ─── API server (CLI + viewer in one static binary) ─────────────────────────
+  artifacta-api:
+    # Prefer the multi-arch image published by .github/workflows/release.yml.
+    # The build block is a fallback for deploying an unreleased commit.
+    image: ghcr.io/agarwalvivek29/artifacta:${ARTIFACTA_VERSION:-latest}
+    build:
+      context: ../services/artifacta-api
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    # Secrets + operator overrides (SESSION_SECRET, OIDC_*, ROOT_DOMAIN, org
+    # branding, and — for a non-OIDC single-token deploy — ARTIFACTA_TOKEN).
+    # Optional: an orchestrator injecting these via its own secret store can omit
+    # the file entirely.
+    env_file:
+      - path: ../services/artifacta-api/.env
+        required: false
+    environment:
+      # Listen address inside the container (the healthcheck dials this).
+      ARTIFACTA_ADDR: ":8080"
+      # Metadata store → Postgres (ADR-0009).
+      ARTIFACTA_STORE: "postgres"
+      ARTIFACTA_DATABASE_URL: "postgres://${POSTGRES_USER:-artifacta}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-artifacta}?sslmode=disable"
+      # Artifact bytes → MinIO (S3-compatible, backend-only; ADR-0006).
+      ARTIFACTA_BLOB: "s3"
+      ARTIFACTA_S3_ENDPOINT: "http://minio:9000"
+      ARTIFACTA_S3_REGION: "${ARTIFACTA_S3_REGION:-us-east-1}"
+      ARTIFACTA_S3_BUCKET: "${ARTIFACTA_S3_BUCKET:-artifacta-bundles}"
+      ARTIFACTA_S3_ACCESS_KEY_ID: "${MINIO_ROOT_USER:-minioadmin}"
+      ARTIFACTA_S3_SECRET_ACCESS_KEY: "${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD in .env}"
+      ARTIFACTA_S3_FORCE_PATH_STYLE: "true"
+    ports:
+      - "${ARTIFACTA_PORT:-8080}:8080"
+    # Distroless image has no shell/curl, so the container-native probe invokes
+    # the binary's own healthcheck subcommand (GET /health → exit 0 on 200).
+    healthcheck:
+      test: ["CMD", "/artifacta", "healthcheck"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    networks:
+      - artifacta
+
+  # ─── PostgreSQL (metadata + audit chain) ────────────────────────────────────
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-artifacta}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-artifacta}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-artifacta} -d ${POSTGRES_DB:-artifacta}",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - artifacta
+
+  # ─── MinIO (S3-compatible bundle store) ─────────────────────────────────────
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD in .env}
+    volumes:
+      - miniodata:/data
+    # Console (bucket admin) — bind to localhost in real deploys or drop it.
+    ports:
+      - "${MINIO_CONSOLE_PORT:-127.0.0.1:9001}:9001"
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - artifacta
+
+  # ─── MinIO bucket bootstrap ─────────────────────────────────────────────────
+  # One-shot: waits for MinIO, then creates the PRIVATE artifact bucket. No
+  # anonymous policy is ever set — every byte stays gated by the app (ADR-0006).
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 ${MINIO_ROOT_USER:-minioadmin} ${MINIO_ROOT_PASSWORD} &&
+      mc mb --ignore-existing local/${ARTIFACTA_S3_BUCKET:-artifacta-bundles} &&
+      echo 'bucket ready: ${ARTIFACTA_S3_BUCKET:-artifacta-bundles} (private)';
+      "
+    networks:
+      - artifacta

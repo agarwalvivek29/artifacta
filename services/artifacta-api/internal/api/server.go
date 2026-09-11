@@ -93,6 +93,44 @@ type Server struct {
 	// and is recorded by the Observe middleware. Nil keeps the not-implemented stub
 	// so a bare Server (e.g. in tests) needs no metrics wiring.
 	Metrics *Metrics
+	// Egress reports whether third-party CDN egress is permitted at view time
+	// (ARTIFACTA_CDN_EGRESS=allow). It drives BOTH how artifacts are rendered
+	// (render.Options) AND the served Content-Security-Policy: false (the default,
+	// air-gapped) tightens the CSP to forbid external hosts so the no-egress
+	// posture is actually enforced; true keeps the permissive https: CSP so a
+	// CDN-import artifact renders. See ADR-0023.
+	Egress bool
+}
+
+// contentCSP returns the Content-Security-Policy for served artifact bytes,
+// applied to BOTH the viewer shell (whose srcdoc'd artifact inherits it) and the
+// direct /raw document. In deny mode (default) it forbids external hosts — the
+// true air-gap; in allow mode it permits https: so CDN-import artifacts load. In
+// both, `sandbox allow-scripts` keeps the artifact a null origin isolated from
+// the app origin and its cookies. shellExtra carries the directives only the
+// viewer shell needs (frame-src for its srcdoc iframe); it is empty for /raw.
+func (s *Server) contentCSP(includeSandbox bool, shellExtra string) string {
+	var b strings.Builder
+	if includeSandbox {
+		b.WriteString("sandbox allow-scripts; ")
+	}
+	if s.Egress {
+		// Permissive: artifacts may pull styles/scripts/fonts/images/data from
+		// https hosts (deployment is private on ingress, not egress).
+		b.WriteString("default-src 'none'; connect-src 'self' https:; img-src https: data:; " +
+			"font-src https: data:; style-src 'unsafe-inline' https:; script-src 'unsafe-inline' https:")
+	} else {
+		// Air-gap: no external hosts. Self-contained artifacts (bundled JS,
+		// inlined Tailwind/Mermaid, inline styles, data: images) render fully;
+		// anything reaching for a CDN is blocked, enforcing the no-egress posture.
+		b.WriteString("default-src 'none'; connect-src 'self'; img-src 'self' data:; " +
+			"font-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'")
+	}
+	if shellExtra != "" {
+		b.WriteString("; ")
+		b.WriteString(shellExtra)
+	}
+	return b.String()
 }
 
 func (s *Server) Routes() http.Handler {
@@ -300,16 +338,12 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) viewer(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Content-Security-Policy",
-		// The srcdoc'd artifact inherits this policy. Egress is allowed (the
-		// deployment is private on ingress, not egress): artifacts may pull
-		// fonts/styles/scripts/data from https hosts. connect-src 'self' covers
-		// the shell's own fetch of /a/{slug}/raw. frame-src 'self' keeps the
-		// srcdoc iframe. The sandbox (no allow-same-origin) still isolates the
-		// artifact from the app origin and its cookies.
-		"default-src 'none'; connect-src 'self' https:; frame-src 'self'; "+
-			"img-src https: data:; font-src https: data:; "+
-			"style-src 'unsafe-inline' https:; script-src 'unsafe-inline' https:")
+	// The srcdoc'd artifact INHERITS this shell CSP (a srcdoc document takes its
+	// embedder's policy, not the /raw header), so this is where the air-gap
+	// posture is actually enforced for the primary viewing path. frame-src 'self'
+	// keeps the srcdoc/thumbnail iframes; the shell is the app UI so it is not
+	// itself sandboxed. See ADR-0023.
+	w.Header().Set("Content-Security-Policy", s.contentCSP(false, "frame-src 'self'"))
 	_, _ = w.Write([]byte(web.ViewerHTML))
 }
 
@@ -406,12 +440,11 @@ func (s *Server) serveVersion(w http.ResponseWriter, r *http.Request, slug strin
 		ct = "text/html; charset=utf-8"
 	}
 	w.Header().Set("Content-Type", ct)
-	w.Header().Set("Content-Security-Policy",
-		// Egress allowed (private on ingress, not egress); sandbox (no
-		// allow-same-origin) keeps the artifact a null origin, isolated from the
-		// app origin + cookies. Applies when /raw is opened as a document directly.
-		"sandbox allow-scripts; default-src 'none'; img-src https: data:; font-src https: data:; "+
-			"style-src 'unsafe-inline' https:; script-src 'unsafe-inline' https:; connect-src https:")
+	// Applies when /raw is opened as a document directly (thumbnails, direct
+	// links). sandbox (no allow-same-origin) keeps the artifact a null origin,
+	// isolated from the app origin + cookies; the egress posture flag decides
+	// whether external hosts are reachable. See ADR-0023.
+	w.Header().Set("Content-Security-Policy", s.contentCSP(true, ""))
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	_, _ = io.Copy(w, rc)
 }
@@ -468,11 +501,12 @@ func (s *Server) publish(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Render-parity pipeline: bundle inline ES modules into a self-contained
-	// artifact that renders under the strict /raw CSP. Fail-soft — Bundle
-	// returns the original bytes (plus warnings) rather than erroring, so a
-	// publish is never blocked by a bundling problem.
-	bundled, bundledCT, _, _ := render.Bundle(body, ct)
+	// Render-parity pipeline: render Markdown to self-contained HTML and bundle
+	// inline ES modules, so the stored artifact renders under the strict CSP.
+	// Fail-soft — Prepare returns the original bytes (plus warnings) rather than
+	// erroring, so a publish is never blocked by a rendering problem. The egress
+	// posture flag is threaded into Options in a later increment.
+	bundled, bundledCT, _, _ := render.Prepare(body, ct, render.Options{Egress: s.Egress})
 	ct = bundledCT
 
 	// A new artifact starts at version 1 (ADR-0013).
@@ -708,8 +742,8 @@ func (s *Server) addVersion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Render-parity bundling, identical to publish (fail-soft).
-	bundled, bundledCT, _, _ := render.Bundle(body, ct)
+	// Render-parity, identical to publish (fail-soft), under the same egress mode.
+	bundled, bundledCT, _, _ := render.Prepare(body, ct, render.Options{Egress: s.Egress})
 	ct = bundledCT
 
 	n := art.GetLatestVersion() + 1

@@ -155,9 +155,11 @@ func TestCommentUnknownSubcommand(t *testing.T) {
 	}
 }
 
-// TestAuditVerifyRemoteTargetErrors: audit verify is a local-store operation, so
-// pointed at a deployment it must say so, not verify an unrelated local log.
-func TestAuditVerifyRemoteTargetErrors(t *testing.T) {
+// TestAuditVerifyRemoteTakesRemotePath: audit verify against a deployment now
+// verifies the caller's own rows over the network (GET /audit) instead of
+// checking an unrelated local log. Without usable credentials it fails on the
+// auth step — proving it took the remote path, not the old "local store" bail.
+func TestAuditVerifyRemoteTakesRemotePath(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("ARTIFACTA_HOME", home)
 	c := config.Default()
@@ -167,7 +169,10 @@ func TestAuditVerifyRemoteTargetErrors(t *testing.T) {
 		t.Fatal(err)
 	}
 	err := audit([]string{"verify"})
-	if err == nil || !strings.Contains(err.Error(), "local store") {
-		t.Fatalf("audit verify against a remote target = %v, want a 'local store' error", err)
+	if err == nil {
+		t.Fatal("audit verify against a remote target with no creds: expected an error, got nil")
+	}
+	if strings.Contains(err.Error(), "local store") {
+		t.Fatalf("audit verify should take the remote path now, got the old local-store error: %v", err)
 	}
 }

@@ -45,22 +45,28 @@ type harness struct {
 
 func newHarness(t *testing.T) *harness {
 	t.Helper()
-	dir := t.TempDir()
-	metaDir := filepath.Join(dir, "meta")
+	blob, err := infra.NewBlobFS(filepath.Join(t.TempDir(), "blobs"))
+	if err != nil {
+		t.Fatalf("new blob fs: %v", err)
+	}
+	return newHarnessWithBlob(t, blob)
+}
 
+// newHarnessWithBlob wires the live server over a real FileStore (for metadata +
+// the auditable hash chain) and the given blob backend, so the identical HTTP
+// flow can be driven against either the filesystem or the S3-compatible blob
+// store. The metadata store is always the file store so the audit log can be
+// verified on disk afterwards.
+func newHarnessWithBlob(t *testing.T, blob api.Blob) *harness {
+	t.Helper()
+	metaDir := filepath.Join(t.TempDir(), "meta")
 	store, err := infra.NewFileStore(metaDir)
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
 	}
-	blob, err := infra.NewBlobFS(filepath.Join(dir, "blobs"))
-	if err != nil {
-		t.Fatalf("new blob fs: %v", err)
-	}
-
 	srv := &api.Server{Store: store, Blob: blob, Auth: headerAuth{}, BaseURL: "https://here.now"}
 	ts := httptest.NewServer(srv.Routes())
 	t.Cleanup(ts.Close)
-
 	return &harness{ts: ts, client: ts.Client(), metaDir: metaDir}
 }
 

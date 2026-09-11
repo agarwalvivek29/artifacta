@@ -85,10 +85,11 @@ func Run(args []string) error {
 	}
 }
 
-// open builds the metadata store + blob store from config. The metadata backend
-// is selectable (ARTIFACTA_STORE): "postgres" for the horizontally-scalable GORM
-// store (ADR-0009), else the zero-dependency file store. Blobs stay on the
-// filesystem in both modes (S3 adapter is ADR-0006, a separate piece).
+// open builds the metadata store + blob store from config. Both backends are
+// independently selectable. Metadata (ARTIFACTA_STORE): "postgres" for the
+// horizontally-scalable GORM store (ADR-0009), else the zero-dependency file
+// store. Blobs (ARTIFACTA_BLOB): "s3" for any S3-compatible backend used strictly
+// server-side (ADR-0006), else the filesystem store.
 func open(c config.Config) (api.Store, api.Blob, error) {
 	var st api.Store
 	switch strings.ToLower(strings.TrimSpace(c.StoreBackend)) {
@@ -107,9 +108,30 @@ func open(c config.Config) (api.Store, api.Blob, error) {
 	default:
 		return nil, nil, fmt.Errorf("unknown ARTIFACTA_STORE %q (want \"file\" or \"postgres\")", c.StoreBackend)
 	}
-	bl, err := infra.NewBlobFS(filepath.Join(c.DataDir, "blobs"))
-	if err != nil {
-		return nil, nil, err
+
+	var bl api.Blob
+	switch strings.ToLower(strings.TrimSpace(c.BlobBackend)) {
+	case "s3":
+		s, err := infra.NewBlobS3(context.Background(), infra.S3Config{
+			Endpoint:        c.S3Endpoint,
+			Region:          c.S3Region,
+			Bucket:          c.S3Bucket,
+			AccessKeyID:     c.S3AccessKeyID,
+			SecretAccessKey: c.S3SecretAccessKey,
+			ForcePathStyle:  c.S3ForcePathStyle,
+		})
+		if err != nil {
+			return nil, nil, err
+		}
+		bl = s
+	case "", "file", "filestore", "fs":
+		s, err := infra.NewBlobFS(filepath.Join(c.DataDir, "blobs"))
+		if err != nil {
+			return nil, nil, err
+		}
+		bl = s
+	default:
+		return nil, nil, fmt.Errorf("unknown ARTIFACTA_BLOB %q (want \"file\" or \"s3\")", c.BlobBackend)
 	}
 	return st, bl, nil
 }

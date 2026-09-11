@@ -8,17 +8,19 @@
 // hosts, so the browser would never fetch those CDN modules and the artifact
 // would render blank.
 //
-// Bundle closes that gap by transpiling + bundling the inline module into a
-// single self-contained classic `<script>` at publish time, so the stored
-// artifact renders under the strict CSP with no network at view time.
+// The air-gap render path closes that gap by transpiling + bundling the inline
+// module into a single self-contained classic `<script>` at publish time — with
+// its vendored dependencies (react, react-dom, …; see deps.go) inlined and any
+// Tailwind Play-CDN reference replaced by the vendored compiler — so the stored
+// artifact renders under the strict CSP with no third-party egress at view time.
 //
-// INCREMENT 1 (this file): pipeline + esbuild integration + fail-soft. It
-// handles artifacts whose module is fully self-contained (no external
-// dependencies). When the module imports bare specifiers we cannot yet resolve
-// (react, etc.), Bundle deliberately does NOT rewrite the artifact — it returns
-// the input unchanged plus a warning naming each unresolved specifier. That
-// warning list is the signal for the FOLLOW-UP increment, which will vendor the
-// dependencies and feed them to esbuild's resolver.
+// Two modes, selected by Options.Egress (ARTIFACTA_CDN_EGRESS):
+//   - deny (default): bundle everything self-contained (air-gap).
+//   - allow: transpile the module only and keep its imports + the import map, so
+//     the browser resolves any dependency from a CDN at view time.
+//
+// A bare specifier that is not in the vendored set and cannot be resolved leaves
+// the artifact unbundled plus a warning — fail-soft, never a failed publish.
 package render
 
 import (
@@ -37,6 +39,31 @@ var (
 	moduleScriptRe = regexp.MustCompile(`(?is)<script\b[^>]*\btype\s*=\s*["']module["'][^>]*>(.*?)</script\s*>`)
 	importmapRe    = regexp.MustCompile(`(?is)<script\b[^>]*\btype\s*=\s*["']importmap["'][^>]*>.*?</script\s*>`)
 )
+
+// Options controls how Prepare renders an artifact. Egress reports whether the
+// deployment permits third-party CDN egress at view time (ARTIFACTA_CDN_EGRESS):
+// false (the default, air-gapped) means self-contained bundles; true means the
+// HTML path may keep an import map and let the browser resolve deps at view
+// time. Markdown/Mermaid rendering is identical in both modes (fully inlined).
+type Options struct {
+	Egress bool
+}
+
+// Prepare is the publish-time entry point. It dispatches on content type:
+//
+//	text/markdown         → renderMarkdown (→ self-contained text/html)
+//	text/html             → Bundle (inline-module bundling; egress-aware in a
+//	                        later increment)
+//	everything else       → passthrough (SVG, images, JSON, … served as-is)
+//
+// It never fails a publish: each branch is fail-soft and returns the original
+// bytes plus a warning rather than an error on trouble.
+func Prepare(input []byte, contentType string, opts Options) (out []byte, outContentType string, warnings []string, err error) {
+	if isMarkdown(contentType) {
+		return renderMarkdown(input)
+	}
+	return bundleHTML(input, contentType, opts)
+}
 
 // Bundle transpiles + bundles an artifact's inline ES module into a
 // self-contained classic script so it renders under the strict /raw CSP.
@@ -63,6 +90,23 @@ var (
 //     original input plus a warning. A stored (un-bundled) artifact is better
 //     than a rejected publish.
 func Bundle(input []byte, contentType string) (out []byte, outContentType string, warnings []string, err error) {
+	return bundleHTML(input, contentType, Options{})
+}
+
+// bundleHTML is the HTML render path. It has two modes, chosen by opts.Egress:
+//
+//   - Air-gap (Egress=false, the default): the inline module is transpiled and
+//     BUNDLED into a self-contained classic <script> with its vendored deps
+//     inlined; the import map is stripped and a Tailwind Play-CDN reference is
+//     replaced with the vendored compiler. The stored artifact renders with zero
+//     third-party egress at view time.
+//   - Egress (Egress=true): the inline module is only TRANSPILED (JSX/TSX → JS);
+//     its imports and the import map are kept, so the browser resolves deps from
+//     a CDN at view time. Tailwind's CDN script is left in place.
+//
+// Non-HTML content passes through untouched. Every failure is soft: on trouble
+// the original bytes are stored (plus a warning) rather than failing the publish.
+func bundleHTML(input []byte, contentType string, opts Options) (out []byte, outContentType string, warnings []string, err error) {
 	// Never let an esbuild edge case panic take down a publish request.
 	defer func() {
 		if r := recover(); r != nil {
@@ -77,75 +121,96 @@ func Bundle(input []byte, contentType string) (out []byte, outContentType string
 		return input, contentType, nil, nil
 	}
 
-	loc := moduleScriptRe.FindSubmatchIndex(input)
+	// Air-gap mode inlines Tailwind for the whole document first (a plain HTML
+	// artifact that only uses Tailwind classes, with no module, still needs it).
+	// Egress mode leaves the CDN script in place.
+	doc := input
+	if !opts.Egress {
+		doc = inlineTailwind(doc)
+	}
+
+	loc := moduleScriptRe.FindSubmatchIndex(doc)
 	if loc == nil {
-		return input, contentType, nil, nil // no inline module → nothing to bundle
+		return doc, contentType, nil, nil // no inline module → nothing to (un)bundle
 	}
 	// loc[2]:loc[3] is capture group 1 (the module source); loc[0]:loc[1] is the
 	// whole <script>…</script> tag we will replace.
-	moduleSrc := string(input[loc[2]:loc[3]])
+	moduleSrc := string(doc[loc[2]:loc[3]])
 	if strings.TrimSpace(moduleSrc) == "" {
-		// An empty body (e.g. a src-only module script) has nothing to inline;
-		// leave the document untouched rather than emit an empty classic script.
-		return input, contentType, nil, nil
+		// An empty body (e.g. a src-only module script) has nothing to process.
+		return doc, contentType, nil, nil
+	}
+
+	if opts.Egress {
+		return transpileHTML(doc, loc, moduleSrc, contentType)
 	}
 
 	js, unresolved, buildWarnings, buildErr := bundleModule(moduleSrc)
 
-	// Fail-soft #1: unresolved bare specifiers. Store the artifact as-is and
-	// surface the specifiers so the dep-vendoring increment can act on them.
+	// Fail-soft #1: unresolved bare specifiers (not in the vendored set). Store
+	// the artifact as-is and surface each specifier. Under air-gap CSP such an
+	// artifact renders degraded, which is the honest air-gap trade-off.
 	if len(unresolved) > 0 {
 		for _, spec := range unresolved {
-			warnings = append(warnings, fmt.Sprintf("render: unresolved import %q — stored unbundled (dep vendoring is a follow-up)", spec))
+			warnings = append(warnings, fmt.Sprintf("render: unresolved import %q — stored unbundled (not in the vendored set; publish under ARTIFACTA_CDN_EGRESS=allow to resolve from a CDN)", spec))
 		}
-		return input, contentType, warnings, nil
+		return doc, contentType, warnings, nil
 	}
 	// Fail-soft #2: any other esbuild error. Fail open to passthrough.
 	if buildErr != nil {
 		warnings = append(warnings, fmt.Sprintf("render: bundle failed, stored unbundled: %v", buildErr))
-		return input, contentType, warnings, nil
+		return doc, contentType, warnings, nil
 	}
 	warnings = append(warnings, buildWarnings...)
 
 	// Rewrite: swap the module script for a classic inline script carrying the
-	// bundled JS, then strip now-dead import maps.
+	// bundled JS, then strip the now-dead import map.
 	classic := "<script>" + escapeClosingScript(js) + "</script>"
-	rewritten := make([]byte, 0, len(input)+len(classic))
-	rewritten = append(rewritten, input[:loc[0]]...)
+	rewritten := make([]byte, 0, len(doc)+len(classic))
+	rewritten = append(rewritten, doc[:loc[0]]...)
 	rewritten = append(rewritten, classic...)
-	rewritten = append(rewritten, input[loc[1]:]...)
+	rewritten = append(rewritten, doc[loc[1]:]...)
 	rewritten = importmapRe.ReplaceAll(rewritten, nil)
 
 	return rewritten, contentType, warnings, nil
 }
 
-// bundleModule runs esbuild over a single inline module source. It returns the
-// bundled JS, the list of bare specifiers it could not resolve (deduplicated,
-// first-seen order), any esbuild warnings, and a fatal error for the
-// unexpected case. Resolve failures are captured as `unresolved`, NOT as err.
+// transpileHTML is the egress-mode rewrite: it transpiles the module's JSX/TSX
+// to JS while KEEPING its imports and the surrounding import map, so the browser
+// resolves dependencies from a CDN at view time. The module stays a
+// `<script type="module">`. Fail-soft: a transpile error stores the original.
+func transpileHTML(doc []byte, loc []int, moduleSrc, contentType string) ([]byte, string, []string, error) {
+	res := esbuild.Transform(moduleSrc, esbuild.TransformOptions{
+		Loader:       esbuild.LoaderTSX,      // JSX/TSX → JS, imports left intact
+		Format:       esbuild.FormatESModule, // keep import/export syntax
+		Target:       esbuild.ES2020,
+		MinifySyntax: true,
+		LogLevel:     esbuild.LogLevelSilent,
+	})
+	if len(res.Errors) > 0 {
+		return doc, contentType,
+			[]string{fmt.Sprintf("render: transpile failed, stored unbundled: %s", res.Errors[0].Text)}, nil
+	}
+	var warnings []string
+	for _, m := range res.Warnings {
+		warnings = append(warnings, "esbuild: "+m.Text)
+	}
+	moduleTag := `<script type="module">` + escapeClosingScript(string(res.Code)) + "</script>"
+	rewritten := make([]byte, 0, len(doc)+len(moduleTag))
+	rewritten = append(rewritten, doc[:loc[0]]...)
+	rewritten = append(rewritten, moduleTag...)
+	rewritten = append(rewritten, doc[loc[1]:]...)
+	return rewritten, contentType, warnings, nil
+}
+
+// bundleModule runs esbuild over a single inline module source, resolving any
+// imports against the vendored dependency set (vendorPlugin). It returns the
+// bundled JS, the list of bare specifiers it could NOT resolve (i.e. not in the
+// vendored set, deduplicated, first-seen order), any esbuild warnings, and a
+// fatal error for the unexpected case. Resolve misses are captured as
+// `unresolved`, NOT as err, so the caller fails soft on them.
 func bundleModule(src string) (js string, unresolved []string, warnings []string, err error) {
 	seen := map[string]bool{}
-
-	// collectBareImports intercepts every non-entry import. In increment 1 we
-	// have no vendored modules, so any import is by definition unresolvable: we
-	// record its specifier and mark it External so the build still completes
-	// (letting us report every offender at once instead of aborting on the
-	// first). The bundle produced in that case is discarded by the caller.
-	collectBareImports := esbuild.Plugin{
-		Name: "collect-bare-imports",
-		Setup: func(b esbuild.PluginBuild) {
-			b.OnResolve(esbuild.OnResolveOptions{Filter: `.*`}, func(a esbuild.OnResolveArgs) (esbuild.OnResolveResult, error) {
-				if a.Kind == esbuild.ResolveEntryPoint {
-					return esbuild.OnResolveResult{}, nil // the stdin entry itself
-				}
-				if !seen[a.Path] {
-					seen[a.Path] = true
-					unresolved = append(unresolved, a.Path)
-				}
-				return esbuild.OnResolveResult{Path: a.Path, External: true}, nil
-			})
-		},
-	}
 
 	result := esbuild.Build(esbuild.BuildOptions{
 		Stdin: &esbuild.StdinOptions{
@@ -160,7 +225,11 @@ func bundleModule(src string) (js string, unresolved []string, warnings []string
 		MinifySyntax: true,
 		Write:        false,
 		LogLevel:     esbuild.LogLevelSilent,
-		Plugins:      []esbuild.Plugin{collectBareImports},
+		// Vendored production builds already inline their env, but a future
+		// "+common-libs" package may branch on process.env.NODE_ENV — define it
+		// so such code takes the production path and never references `process`.
+		Define:  map[string]string{"process.env.NODE_ENV": `"production"`},
+		Plugins: []esbuild.Plugin{vendorPlugin(&unresolved, seen)},
 	})
 
 	for _, m := range result.Warnings {

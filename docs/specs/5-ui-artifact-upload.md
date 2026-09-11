@@ -1,7 +1,7 @@
 # Spec: Upload an artifact from the dashboard UI
 
 **Issue**: N/A (maintainer-requested)
-**Status**: Draft
+**Status**: Implemented (2026-09-11)
 **Author**: Vivek Agarwal
 **Date**: 2026-09-11
 **Services Affected**: `artifacta-api` (dashboard `web/`, the `POST /artifacts` handler, raw serving, config)
@@ -217,9 +217,11 @@ dashboard passes it into `DashboardData`.
 
 ## References
 
-- Reuses `s.publish` (`internal/api/server.go`), the 25 MiB `maxBytes` guard, `render.Bundle`
-  (ADR-0010), the raw serving path, the blob backend (ADR-0006), and the dashboard (`internal/web/`).
+- Reuses `s.publish` (`internal/api/server.go`), the 25 MiB `maxBytes` guard, `render.Prepare`
+  (the egress-aware successor to `render.Bundle`, ADR-0010/ADR-0023), the raw serving path, the blob
+  backend (ADR-0006), and the dashboard (`internal/web/`). Both the CLI and upload paths share
+  `Server.storeArtifact`.
+- Decision recorded in [ADR-0024](../adr/0024-browser-artifact-upload.md) (content-negotiated
+  endpoint, server-decided content-type allowlist, toggle gate, CSRF backstop).
 - Related ADRs: [0008](../adr/0008-separate-content-origin.md) (content origin / sandbox),
   [0013](../adr/0013-artifact-versioning.md) (versions).
-- No new ADR required — additive to the existing publish contract; content-negotiation + the
-  content-type allowlist are captured here.

@@ -6,13 +6,15 @@ All notable changes to ArtifactA are documented here. Versions follow [SemVer](h
 
 ### Added
 
-- **`artifacta upgrade`** (ADR-0021): checks GitHub for a newer CLI and gives
-  deployment-aware advice. A release that declares a `min-server-version:` marker is
-  server-dependent — the CLI reads the deployment's version and only recommends the upgrade when
-  the server is new enough, otherwise it says to upgrade the server first. Independent releases
-  prompt the upgrade unconditionally. It advises; it never self-updates the binary.
-- **`GET /version`** (unauthenticated): the deployed server's version plus a compatibility
-  contract (`min_cli_version`, `capabilities`).
+- **`artifacta upgrade`** (ADR-0021): deployment-anchored version management. The CLI and server
+  ship from one binary per release, so the deployment's running version is the compatibility
+  anchor — when logged in, `upgrade` recommends installing the deployment's exact version,
+  **upgrading or downgrading** to match (so a newer CLI against an older deployment is told to
+  downgrade rather than stranded). Not logged in, it checks GitHub for a newer release and
+  reasons about a `min-server-version:` dependency. It advises; it never self-updates.
+- **Install-by-URL**: `install.sh` accepts `ARTIFACTA_DEPLOYMENT=<url>` (or `--url`) and installs
+  the exact CLI version the deployment runs (via a new unauthenticated **`GET /version`** that
+  exposes the deployed version + `min_cli_version` + `capabilities`).
 
 ## 0.0.3 — 2026-09-11
 

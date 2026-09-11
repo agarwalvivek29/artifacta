@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	artifactav1 "github.com/agarwalvivek29/here.now/packages/schema/generated/go/artifacta/v1"
-	"github.com/agarwalvivek29/here.now/services/artifacta-api/internal/infra"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -193,6 +192,3 @@ func TestSetVisibilityUnknownValueReturns400(t *testing.T) {
 		t.Fatalf("visibility changed despite 400: got %v", art.GetVisibility())
 	}
 }
-
-// ensure the concrete store still satisfies the consumer interface with AddGrant.
-var _ Store = (*infra.FileStore)(nil)

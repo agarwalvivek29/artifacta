@@ -760,17 +760,23 @@ func doctor() error {
 	}
 	fmt.Printf("  ✓ discovery: auth=%s\n", disc.Auth)
 
-	token, err := freshToken(&c)
-	if err != nil {
-		fmt.Printf("  ✗ auth: %v\n", err)
-		return err
+	// Auth check only applies to OIDC deployments — a local dev-auth server has no
+	// CLI token to verify, so skip it there instead of reporting a spurious ✗.
+	if disc.Auth == "local" {
+		fmt.Println("  • auth: local dev mode — no CLI token to check")
+	} else {
+		token, err := freshToken(&c)
+		if err != nil {
+			fmt.Printf("  ✗ auth: %v\n", err)
+			return err
+		}
+		sub, email, err := meRemote(c.BaseURL, token)
+		if err != nil {
+			fmt.Printf("  ✗ auth: %v\n", err)
+			return err
+		}
+		fmt.Printf("  ✓ auth: %s <%s>\n", sub, email)
 	}
-	sub, email, err := meRemote(c.BaseURL, token)
-	if err != nil {
-		fmt.Printf("  ✗ auth: %v\n", err)
-		return err
-	}
-	fmt.Printf("  ✓ auth: %s <%s>\n", sub, email)
 
 	// Version compatibility: matched is a ✓; a mismatch prints the exact command
 	// to install the deployment's version (advice only — doctor never changes it).

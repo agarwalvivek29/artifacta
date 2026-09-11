@@ -275,13 +275,15 @@ Agents working on this service may:
 ## Related ADRs
 
 - [ADR 0001](../../docs/adr/0001-monorepo-structure.md) — Monorepo structure
+- [ADR 0006](../../docs/adr/0006-s3-blob-adapter-backend-only.md) — S3-compatible blob adapter, backend-only (no presigned URLs)
 - [ADR 0013](../../docs/adr/0013-artifact-versioning.md) — Artifact versioning (immutable versions, explicit update)
 
 ---
 
 ## Changelog
 
-| Date       | Change                                                                                                                                   | Author        |
-| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ------------- |
-| 2026-07-07 | Service created                                                                                                                          | [name]        |
-| 2026-08-25 | Immutable artifact versioning: `POST /artifacts/{slug}/versions`, `GET /a/{slug}/v/{n}/raw`, `GET /artifacts/{slug}` metadata (ADR-0013) | Vivek Agarwal |
+| Date       | Change                                                                                                                                                                                                               | Author        |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------- |
+| 2026-07-07 | Service created                                                                                                                                                                                                      | [name]        |
+| 2026-08-25 | Immutable artifact versioning: `POST /artifacts/{slug}/versions`, `GET /a/{slug}/v/{n}/raw`, `GET /artifacts/{slug}` metadata (ADR-0013)                                                                             | Vivek Agarwal |
+| 2026-09-11 | S3-compatible blob backend, backend-only (ADR-0006): `internal/infra/blob_s3.go`, selected via `ARTIFACTA_BLOB=s3`; AWS SDK v2 dep; MinIO self-host default. No presigned URLs — bytes stay CanView-gated + audited. | Vivek Agarwal |

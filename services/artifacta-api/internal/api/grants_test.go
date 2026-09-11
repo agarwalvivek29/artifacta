@@ -179,7 +179,7 @@ func TestSetVisibilityUnknownValueReturns400(t *testing.T) {
 	seedArtifact(t, srv, slug, owner.GetSub())
 
 	req := httptest.NewRequest(http.MethodPatch, "/artifacts/"+slug+"/visibility",
-		strings.NewReader(`{"visibility":"public"}`))
+		strings.NewReader(`{"visibility":"everyone"}`))
 	rr := httptest.NewRecorder()
 	h.ServeHTTP(rr, req)
 
@@ -190,5 +190,34 @@ func TestSetVisibilityUnknownValueReturns400(t *testing.T) {
 	art, _, _ := srv.Store.GetArtifact(slug)
 	if art.GetVisibility() != artifactav1.Visibility_VISIBILITY_PRIVATE {
 		t.Fatalf("visibility changed despite 400: got %v", art.GetVisibility())
+	}
+}
+
+// "public" is an accepted alias for the no-login, VPN-gated "link" level: people
+// arriving from other tools reach for "public". It maps to VISIBILITY_LINK.
+func TestSetVisibilityPublicAliasesToLink(t *testing.T) {
+	dir := t.TempDir()
+	owner := &artifactav1.Identity{Sub: "local:owner", Email: "owner@localhost"}
+	srv := newTestServer(t, dir, fakeAuth{id: owner, ok: true})
+	h := srv.Routes()
+
+	const slug = "seededslug6"
+	seedArtifact(t, srv, slug, owner.GetSub())
+
+	req := httptest.NewRequest(http.MethodPatch, "/artifacts/"+slug+"/visibility",
+		strings.NewReader(`{"visibility":"public"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("public alias: got %d, want 200 (body %q)", rr.Code, rr.Body.String())
+	}
+	art, ok, err := srv.Store.GetArtifact(slug)
+	if err != nil || !ok {
+		t.Fatalf("GetArtifact(%q): ok=%v err=%v", slug, ok, err)
+	}
+	if art.GetVisibility() != artifactav1.Visibility_VISIBILITY_LINK {
+		t.Fatalf("visibility: got %v, want LINK (public alias)", art.GetVisibility())
 	}
 }

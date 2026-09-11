@@ -54,20 +54,29 @@ func TestInviteByEmailFlow(t *testing.T) {
 	if code := viewRaw(stranger); code != http.StatusNotFound {
 		t.Fatalf("stranger view: got %d, want 404", code)
 	}
-	// Grantees show in metadata for the owner, but not for a viewer.
+	// Grantees + owner_email show in metadata for the owner (the Share panel's
+	// people list needs both), but not for a viewer.
 	var ownerMeta struct {
-		Grantees []struct{ ID, Email string } `json:"grantees"`
+		Grantees   []struct{ ID, Email string } `json:"grantees"`
+		OwnerEmail string                       `json:"owner_email"`
 	}
 	_ = json.Unmarshal(do(fakeAuth{id: owner, ok: true}, http.MethodGet, "/artifacts/doc", "").Body.Bytes(), &ownerMeta)
 	if len(ownerMeta.Grantees) != 1 || ownerMeta.Grantees[0].Email != "sam@corp.com" {
 		t.Fatalf("owner metadata grantees = %+v, want one sam@corp.com", ownerMeta.Grantees)
 	}
+	if ownerMeta.OwnerEmail != "owner@corp.com" {
+		t.Fatalf("owner metadata owner_email = %q, want owner@corp.com", ownerMeta.OwnerEmail)
+	}
 	var viewerMeta struct {
-		Grantees []any `json:"grantees"`
+		Grantees   []any  `json:"grantees"`
+		OwnerEmail string `json:"owner_email"`
 	}
 	_ = json.Unmarshal(do(sam, http.MethodGet, "/artifacts/doc", "").Body.Bytes(), &viewerMeta)
 	if len(viewerMeta.Grantees) != 0 {
 		t.Errorf("viewer should not see grantee list, got %+v", viewerMeta.Grantees)
+	}
+	if viewerMeta.OwnerEmail != "" {
+		t.Errorf("viewer should not see owner_email, got %q", viewerMeta.OwnerEmail)
 	}
 	// Owner revokes; sam is denied again.
 	if rr := do(fakeAuth{id: owner, ok: true}, http.MethodDelete, "/artifacts/doc/grants/"+url.PathEscape("sam@corp.com"), ""); rr.Code != http.StatusOK {

@@ -39,6 +39,28 @@ func VerifyChain(events []*artifactav1.AuditEvent) (verified int, err error) {
 	return verified, nil
 }
 
+// VerifyRowHashes checks the per-row integrity of an audit-event slice WITHOUT
+// requiring the full contiguous chain: for each row it recomputes hashEvent and
+// confirms it reproduces the stored Hash. Because hashEvent folds in the row's
+// own PrevHash and Seq, this detects tampering with any field of a returned row.
+//
+// It is the check the CLI runs over an OWNER-SCOPED subset of the trail (the
+// events for a caller's own artifacts), where Seq is deliberately non-contiguous
+// so VerifyChain's seq/prev-hash linkage checks cannot apply. It therefore does
+// NOT prove no row was deleted between the caller's events — that continuity
+// property needs the complete log and is verified by VerifyChain on the server
+// host. Returns the number of rows verified and a descriptive error (with the
+// offending Seq) at the first mismatch. An empty slice verifies as (0, nil).
+func VerifyRowHashes(events []*artifactav1.AuditEvent) (verified int, err error) {
+	for _, ev := range events {
+		if want := hashEvent(ev); ev.GetHash() != want {
+			return verified, fmt.Errorf("audit event seq %d: hash mismatch (row tampered)", ev.GetSeq())
+		}
+		verified++
+	}
+	return verified, nil
+}
+
 // readAuditLog parses the append-only <dir>/audit.log into events in file order.
 // A missing or empty log is (nil, nil).
 func readAuditLog(dir string) ([]*artifactav1.AuditEvent, error) {

@@ -23,6 +23,7 @@ import (
 	"github.com/agarwalvivek29/here.now/services/artifacta-api/internal/domain"
 	"github.com/agarwalvivek29/here.now/services/artifacta-api/internal/render"
 	"github.com/agarwalvivek29/here.now/services/artifacta-api/internal/web"
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -152,6 +153,9 @@ func (s *Server) Routes() http.Handler {
 	// identity probe (powers `artifacta doctor` / `whoami`). Both fail closed 401.
 	mux.Handle("GET /artifacts", rateLimit(http.HandlerFunc(s.listArtifacts), contentPerMinute))
 	mux.Handle("GET /me", rateLimit(http.HandlerFunc(s.me), contentPerMinute))
+	// Audit (remote `artifacta audit verify`): the caller's OWN audit rows so they
+	// can verify per-row integrity client-side. Owner-scoped, fail-closed 401.
+	mux.Handle("GET /audit", rateLimit(http.HandlerFunc(s.auditEvents), contentPerMinute))
 
 	// Sharing (FR12, FR13): owner-only mutations. Both fail closed — an
 	// unauthenticated caller gets 401 and a non-owner (or unknown slug) gets a
@@ -601,6 +605,57 @@ func (s *Server) listArtifacts(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(out)
 }
 
+// auditEvents backs GET /audit: the caller's OWN audit rows — events where the
+// caller is the principal, or the event is about an artifact they own — in seq
+// order, each re-marshaled to protojson so the CLI can recompute the hash and
+// verify per-row integrity client-side (remote `artifacta audit verify`).
+//
+// Owner-scoped and fail-closed 401. The instance-wide trail records who viewed
+// what across every artifact, so a caller is only ever shown rows that concern
+// them; verifying the full chain's continuity stays a server-host operation.
+//
+// v0 scope: this loads the whole trail and filters in-process. It's bounded by
+// the per-IP rate limiter and fine at current scale; pushing the owner filter
+// into the store with pagination is a follow-up (see TODOS.md).
+func (s *Server) auditEvents(w http.ResponseWriter, r *http.Request) {
+	who, ok := s.Auth.Identify(r)
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	sub := who.GetSub()
+
+	arts, err := s.Store.ListByOwner(sub)
+	if err != nil {
+		http.Error(w, "unavailable", http.StatusInternalServerError)
+		return
+	}
+	owned := make(map[string]bool, len(arts))
+	for _, a := range arts {
+		owned[a.GetSlug()] = true
+	}
+
+	events, err := s.Store.AuditEvents()
+	if err != nil {
+		http.Error(w, "unavailable", http.StatusInternalServerError)
+		return
+	}
+	out := make([]json.RawMessage, 0, len(events))
+	for _, ev := range events {
+		if ev.GetPrincipalSub() != sub && !owned[ev.GetSlug()] {
+			continue // not the caller's action, not about their artifact
+		}
+		b, err := protojson.Marshal(ev)
+		if err != nil {
+			http.Error(w, "unavailable", http.StatusInternalServerError)
+			return
+		}
+		out = append(out, json.RawMessage(b))
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(out)
+}
+
 // response has already been written.
 func (s *Server) ownedArtifact(w http.ResponseWriter, r *http.Request, slug string) (*artifactav1.Artifact, *artifactav1.Identity, bool) {
 	who, ok := s.Auth.Identify(r)
@@ -756,7 +811,9 @@ func (s *Server) metadata(w http.ResponseWriter, r *http.Request) {
 		Sub   string `json:"sub,omitempty"`
 	}
 	var grantees []granteeView
+	var ownerEmail string
 	if isOwner {
+		ownerEmail = who.GetEmail() // the caller is the owner here
 		grantees = make([]granteeView, 0, len(grants))
 		for _, g := range grants {
 			id := g.GetGranteeEmail()
@@ -782,6 +839,10 @@ func (s *Server) metadata(w http.ResponseWriter, r *http.Request) {
 		"root_domain":   s.RootDomain, // "" when subdomain hosting is disabled
 		// People with access (owner-only; nil/omitted for non-owners).
 		"grantees": grantees,
+		// owner_email labels the owner's own row in the Share panel's people list.
+		// Owner-only (the caller is the owner when isOwner) and omitted otherwise,
+		// so a non-owner never learns who owns an artifact they can merely view.
+		"owner_email": ownerEmail,
 	})
 }
 
@@ -903,7 +964,7 @@ func (s *Server) setVisibility(w http.ResponseWriter, r *http.Request) {
 	}
 	vis, ok := parseVisibility(body.Visibility)
 	if !ok {
-		http.Error(w, "unknown visibility", http.StatusBadRequest)
+		http.Error(w, `unknown visibility (want private, invited, org, or link; "public" is an alias for link)`, http.StatusBadRequest)
 		return
 	}
 
@@ -1006,8 +1067,11 @@ func parseVisibility(s string) (artifactav1.Visibility, bool) {
 		return artifactav1.Visibility_VISIBILITY_INVITED, true
 	case "org":
 		return artifactav1.Visibility_VISIBILITY_ORG, true
-	case "link":
+	case "link", "public":
 		// No-login, VPN-gated hosting (ADR-0018). Owner opts in explicitly.
+		// "public" is an accepted alias for "link": people arriving from other
+		// tools reach for "public" for a no-login link. It is NOT internet-public
+		// (still VPN-gated); the canonical name stays "link" everywhere it's shown.
 		return artifactav1.Visibility_VISIBILITY_LINK, true
 	default:
 		return artifactav1.Visibility_VISIBILITY_UNSPECIFIED, false

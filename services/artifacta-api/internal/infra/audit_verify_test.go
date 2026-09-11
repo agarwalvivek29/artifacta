@@ -45,6 +45,35 @@ func TestVerifyAuditLogOK(t *testing.T) {
 	}
 }
 
+// TestVerifyRowHashes checks per-row verification (the owner-scoped remote
+// path): real rows verify, and altering one row's hashed content is detected
+// even though the slice is not a contiguous chain.
+func TestVerifyRowHashes(t *testing.T) {
+	dir := t.TempDir()
+	s, err := NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	appendEvents(t, s, 3)
+	events, err := s.AuditEvents()
+	if err != nil {
+		t.Fatalf("AuditEvents: %v", err)
+	}
+
+	// A non-contiguous subset (drop the middle row) still verifies per-row: unlike
+	// VerifyChain, VerifyRowHashes does not require seq continuity.
+	subset := []*artifactav1.AuditEvent{events[0], events[2]}
+	if n, err := VerifyRowHashes(subset); err != nil || n != 2 {
+		t.Fatalf("VerifyRowHashes(subset): n=%d err=%v, want 2/nil", n, err)
+	}
+
+	// Tamper with a hashed field on one row: it must be caught.
+	events[0].Slug = "tampered"
+	if _, err := VerifyRowHashes(events); err == nil {
+		t.Fatal("VerifyRowHashes: expected error on tampered row, got nil")
+	}
+}
+
 // TestVerifyAuditLogEmpty verifies a missing log is (0, nil).
 func TestVerifyAuditLogEmpty(t *testing.T) {
 	n, err := VerifyAuditLog(t.TempDir())

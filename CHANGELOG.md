@@ -7,8 +7,9 @@ All notable changes to ArtifactA are documented here. Versions follow [SemVer](h
 ### Added
 
 - **Upload an artifact from the browser** (ADR-0024, spec 5), behind `ARTIFACTA_UPLOAD_UI` (default
-  off). A signed-in user can pick a file — HTML, PDF, or an image (PNG/JPEG/GIF/WebP/SVG), up to
-  25 MiB — from a dashboard form and host it as an ordinary private-by-default, versioned artifact.
+  off). A floating **Upload** button on the dashboard opens a dialog where a signed-in user picks a
+  file — HTML, PDF, or an image (PNG/JPEG/GIF/WebP/SVG), up to 25 MiB — and hosts it as an ordinary
+  private-by-default, versioned artifact.
   It content-negotiates the existing `POST /artifacts` (multipart for the browser, raw body for the
   CLI — unchanged), decides the content type server-side against an allowlist (never the client's
   header), runs HTML through the same `render.Prepare` pipeline, and serves it through the same

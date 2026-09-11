@@ -59,9 +59,18 @@ type Config struct {
 	SessionSecret string `json:"session_secret"`
 	// AccessToken holds the OIDC id_token obtained by `artifacta login` and sent as
 	// `Authorization: Bearer <id_token>` when publishing to a remote API (ADR-0007).
-	// Stored in the 0600 config file for now.
-	// TODO(hardening): move token to OS keychain (ADR-0007).
-	AccessToken string `json:"access_token"`
+	// RefreshToken (offline_access) lets the CLI mint a fresh id_token without a new
+	// browser login; AccessTokenExpiry (RFC3339) is the id_token's exp, so the CLI
+	// refreshes proactively instead of on a failed request. Both are stored in the
+	// 0600 config file for now.
+	// TODO(hardening): move tokens to OS keychain (ADR-0007).
+	AccessToken       string `json:"access_token"`
+	RefreshToken      string `json:"refresh_token"`
+	AccessTokenExpiry string `json:"access_token_expiry"`
+	// LoggedIn records that `artifacta login` completed against a remote server, so
+	// the CLI routes commands to that server explicitly rather than inferring intent
+	// from the base URL. Cleared when a refresh fails and re-login is required.
+	LoggedIn bool `json:"logged_in"`
 }
 
 // OIDCEnabled reports whether enough OIDC config is present to wire browser SSO.
@@ -133,6 +142,7 @@ func applyEnv(c *Config) {
 	setFromEnv("ARTIFACTA_OIDC_REDIRECT_URL", &c.OIDCRedirectURL)
 	setFromEnv("ARTIFACTA_SESSION_SECRET", &c.SessionSecret)
 	setFromEnv("ARTIFACTA_ACCESS_TOKEN", &c.AccessToken)
+	setFromEnv("ARTIFACTA_REFRESH_TOKEN", &c.RefreshToken)
 }
 
 // setFromEnv writes the value of env var key into dst only when it is non-empty.

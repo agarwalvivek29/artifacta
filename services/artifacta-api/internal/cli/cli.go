@@ -12,7 +12,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -39,7 +38,9 @@ var Version = "dev"
 const usage = `artifacta — self-hostable host for AI-generated artifacts
 
 Usage:
-  artifacta login             set up your local identity + session token
+  artifacta login [<url>]     log in to a server; <url> auto-configures everything
+  artifacta doctor            check server connectivity + authentication
+  artifacta whoami            print the authenticated identity
   artifacta publish <file>    publish a new artifact, print its link
   artifacta publish --update <slug> <file>
                             append a new version to an existing artifact
@@ -61,7 +62,11 @@ func Run(args []string) error {
 	}
 	switch args[0] {
 	case "login":
-		return login()
+		return login(args[1:])
+	case "doctor":
+		return doctor()
+	case "whoami":
+		return whoami()
 	case "publish":
 		return publish(args[1:])
 	case "versions":
@@ -136,14 +141,38 @@ func open(c config.Config) (api.Store, api.Blob, error) {
 	return st, bl, nil
 }
 
-func login() error {
+func login(args []string) error {
 	c, err := config.Load()
 	if err != nil {
 		return err
 	}
-	// OIDC configured: perform a real loopback browser login and store the
-	// id_token as the CLI's Bearer credential.
-	if c.OIDCEnabled() {
+
+	// `artifacta login <url>` bootstraps everything from the URL: point at the
+	// server, ask its discovery endpoint how to authenticate, and configure the
+	// OIDC issuer + client_id from the response so the user supplies nothing else.
+	if len(args) > 0 && args[0] != "" {
+		c.BaseURL = args[0]
+		disc, err := fetchCLIConfig(c.BaseURL)
+		if err != nil {
+			return err
+		}
+		switch disc.Auth {
+		case "oidc":
+			if disc.Issuer == "" || disc.ClientID == "" {
+				return fmt.Errorf("server discovery returned no issuer/client_id")
+			}
+			c.OIDCIssuer = disc.Issuer
+			c.OIDCClientID = disc.ClientID
+			c.OIDCClientSecret = "" // public client: PKCE only, never a secret
+			return loginOIDC(c)
+		case "local", "":
+			fmt.Printf("server %s uses local dev auth (no OIDC).\n", c.BaseURL)
+			// fall through to the local single-token setup below.
+		default:
+			return fmt.Errorf("server advertised unknown auth mode %q", disc.Auth)
+		}
+	} else if c.OIDCEnabled() {
+		// No URL given but OIDC is already configured: perform the loopback login.
 		return loginOIDC(c)
 	}
 
@@ -188,10 +217,10 @@ func loginOIDC(c config.Config) error {
 	}
 	oauthCfg := &oauth2.Config{
 		ClientID:     c.OIDCClientID,
-		ClientSecret: c.OIDCClientSecret,
+		ClientSecret: c.OIDCClientSecret, // empty for the public CLI client (PKCE only)
 		RedirectURL:  fmt.Sprintf("http://%s/callback", ln.Addr().String()),
 		Endpoint:     provider.Endpoint(),
-		Scopes:       []string{oidc.ScopeOpenID, "email", "profile"},
+		Scopes:       cliScopes, // includes offline_access → refresh token
 	}
 
 	state, err := randState()
@@ -204,10 +233,10 @@ func loginOIDC(c config.Config) error {
 	// loginResult carries the outcome from the loopback handler back to the
 	// waiting command.
 	type loginResult struct {
-		idToken string
-		sub     string
-		email   string
-		err     error
+		tok   *oauth2.Token
+		sub   string
+		email string
+		err   error
 	}
 	resCh := make(chan loginResult, 1)
 
@@ -218,21 +247,23 @@ func loginOIDC(c config.Config) error {
 			resCh <- loginResult{err: fmt.Errorf("state mismatch on callback")}
 			return
 		}
-		raw, sub, email, err := exchangeCode(r.Context(), oauthCfg, verifier, r.URL.Query().Get("code"), pkce)
+		tok, sub, email, err := exchangeCode(r.Context(), oauthCfg, verifier, r.URL.Query().Get("code"), pkce)
 		if err != nil {
 			http.Error(w, "login failed", http.StatusBadGateway)
 			resCh <- loginResult{err: err}
 			return
 		}
 		fmt.Fprintln(w, "artifacta login complete — you can close this tab.")
-		resCh <- loginResult{idToken: raw, sub: sub, email: email}
+		resCh <- loginResult{tok: tok, sub: sub, email: email}
 	})
 
 	srv := &http.Server{Handler: mux}
 	go func() { _ = srv.Serve(ln) }()
 	defer func() { _ = srv.Shutdown(context.Background()) }()
 
-	authURL := oauthCfg.AuthCodeURL(state, oauth2.AccessTypeOnline, oauth2.S256ChallengeOption(pkce))
+	// AccessTypeOffline asks the IdP to return a refresh token (with offline_access
+	// in scope) so the CLI can renew without a new browser login.
+	authURL := oauthCfg.AuthCodeURL(state, oauth2.AccessTypeOffline, oauth2.S256ChallengeOption(pkce))
 	fmt.Printf("opening browser to log in:\n  %s\n", authURL)
 	if err := openBrowser(authURL); err != nil {
 		fmt.Printf("(could not open a browser automatically — open the URL above manually)\n")
@@ -243,40 +274,49 @@ func loginOIDC(c config.Config) error {
 		return res.err
 	}
 
-	c.AccessToken = res.idToken
+	raw, _ := res.tok.Extra("id_token").(string)
+	c.AccessToken = raw
+	c.RefreshToken = res.tok.RefreshToken
+	c.AccessTokenExpiry = idTokenExpiry(raw)
 	c.Sub = res.sub
 	c.Email = res.email
+	c.LoggedIn = true
 	if err := config.Save(c); err != nil {
 		return err
 	}
-	fmt.Printf("logged in as %s\n", c.Email)
+	if c.RefreshToken == "" {
+		fmt.Printf("logged in as %s (no refresh token issued — the IdP may not grant offline_access; you may need to re-login when the session expires)\n", c.Email)
+	} else {
+		fmt.Printf("logged in as %s\n", c.Email)
+	}
 	return nil
 }
 
 // exchangeCode swaps an authorization code (with its PKCE verifier) for tokens,
 // then verifies the returned id_token against the issuer and extracts sub+email.
-// It is separated from the loopback plumbing so the exchange can be unit-tested
-// without a browser.
-func exchangeCode(ctx context.Context, oauthCfg *oauth2.Config, verifier *oidc.IDTokenVerifier, code, pkce string) (idToken, sub, email string, err error) {
-	tok, err := oauthCfg.Exchange(ctx, code, oauth2.VerifierOption(pkce))
+// It returns the full oauth2 token so the caller can persist the refresh token
+// (offline_access) alongside the id_token. Separated from the loopback plumbing
+// so the exchange can be unit-tested without a browser.
+func exchangeCode(ctx context.Context, oauthCfg *oauth2.Config, verifier *oidc.IDTokenVerifier, code, pkce string) (tok *oauth2.Token, sub, email string, err error) {
+	tok, err = oauthCfg.Exchange(ctx, code, oauth2.VerifierOption(pkce))
 	if err != nil {
-		return "", "", "", err
+		return nil, "", "", err
 	}
 	raw, ok := tok.Extra("id_token").(string)
 	if !ok || raw == "" {
-		return "", "", "", fmt.Errorf("token response carried no id_token")
+		return nil, "", "", fmt.Errorf("token response carried no id_token")
 	}
 	idt, err := verifier.Verify(ctx, raw)
 	if err != nil {
-		return "", "", "", err
+		return nil, "", "", err
 	}
 	var claims struct {
 		Email string `json:"email"`
 	}
 	if err := idt.Claims(&claims); err != nil {
-		return "", "", "", err
+		return nil, "", "", err
 	}
-	return raw, idt.Subject, claims.Email, nil
+	return tok, idt.Subject, claims.Email, nil
 }
 
 // randState returns a 256-bit base64url random string for the OAuth state nonce.
@@ -328,12 +368,17 @@ func publish(args []string) error {
 		return err
 	}
 
-	// Update mode: append a new immutable version to an existing artifact.
+	// Update mode: append a new immutable version to an existing artifact. This is
+	// inherently a remote operation.
 	if updateSlug != "" {
-		if c.BaseURL == "" || c.AccessToken == "" {
-			return fmt.Errorf("publish --update requires a remote server + login")
+		if !remoteTarget(c) {
+			return fmt.Errorf("publish --update requires a remote server — run: artifacta login <url>")
 		}
-		n, link, err := addVersionRemote(c.BaseURL, c.AccessToken, updateSlug, path)
+		token, err := freshToken(&c)
+		if err != nil {
+			return err
+		}
+		n, link, err := addVersionRemote(c.BaseURL, token, updateSlug, path)
 		if err != nil {
 			return err
 		}
@@ -341,10 +386,16 @@ func publish(args []string) error {
 		return nil
 	}
 
-	// Remote API mode: a server is targeted and we hold an access token — POST
-	// the file over HTTP with the id_token as a Bearer credential.
-	if c.BaseURL != "" && c.AccessToken != "" {
-		link, err := publishRemote(c.BaseURL, c.AccessToken, path)
+	// Remote mode: a deployment is targeted (logged in, or a non-localhost URL).
+	// Publish over HTTP with a fresh id_token; a missing/expired credential is a
+	// hard error — we never silently fall back to writing the local store, which
+	// would print a localhost link for what the user believes is a remote publish.
+	if remoteTarget(c) {
+		token, err := freshToken(&c)
+		if err != nil {
+			return err
+		}
+		link, err := publishRemote(c.BaseURL, token, path)
 		if err != nil {
 			return err
 		}
@@ -352,9 +403,10 @@ func publish(args []string) error {
 		return nil
 	}
 
-	// Backward-compatible dev mode: write directly to the local store.
+	// Local dev mode (not logged in, no remote target): write to the local store
+	// and label the link so it's unmistakably local.
 	if c.Sub == "" {
-		return fmt.Errorf("not logged in — run: artifacta login")
+		return fmt.Errorf("not logged in — run: artifacta login <url>")
 	}
 	f, err := os.Open(path)
 	if err != nil {
@@ -395,7 +447,7 @@ func publish(args []string) error {
 		Ts: timestamppb.Now(), PrincipalSub: c.Sub, Slug: art.GetSlug(),
 		Action: artifactav1.AuditAction_AUDIT_ACTION_PUBLISH, Allowed: true,
 	})
-	fmt.Printf("%s/a/%s\n", c.BaseURL, art.GetSlug())
+	fmt.Printf("published locally → %s/a/%s\n", c.BaseURL, art.GetSlug())
 	return nil
 }
 
@@ -409,30 +461,13 @@ func publishRemote(baseURL, token, path string) (string, error) {
 	}
 	defer f.Close()
 
-	endpoint := strings.TrimSuffix(baseURL, "/") + "/artifacts?title=" + url.QueryEscape(filepath.Base(path))
-	req, err := http.NewRequest(http.MethodPost, endpoint, f)
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Content-Type", "text/html; charset=utf-8")
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusCreated {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return "", fmt.Errorf("publish failed: %s: %s", resp.Status, strings.TrimSpace(string(body)))
-	}
-
+	endpoint := remoteURL(baseURL, "/artifacts?title="+url.QueryEscape(filepath.Base(path)))
 	var out struct {
 		Slug string `json:"slug"`
 		URL  string `json:"url"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return "", fmt.Errorf("decode publish response: %w", err)
+	if err := doRemote(http.MethodPost, endpoint, token, "text/html; charset=utf-8", f, http.StatusCreated, &out); err != nil {
+		return "", fmt.Errorf("publish failed: %w", err)
 	}
 	return out.URL, nil
 }
@@ -448,31 +483,14 @@ func addVersionRemote(baseURL, token, slug, path string) (int, string, error) {
 	}
 	defer f.Close()
 
-	endpoint := strings.TrimSuffix(baseURL, "/") + "/artifacts/" + url.PathEscape(slug) + "/versions"
-	req, err := http.NewRequest(http.MethodPost, endpoint, f)
-	if err != nil {
-		return 0, "", err
-	}
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Content-Type", "text/html; charset=utf-8")
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return 0, "", err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusCreated {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return 0, "", fmt.Errorf("add-version failed: %s: %s", resp.Status, strings.TrimSpace(string(body)))
-	}
-
+	endpoint := remoteURL(baseURL, "/artifacts/"+url.PathEscape(slug)+"/versions")
 	var out struct {
 		Slug    string `json:"slug"`
 		Version int    `json:"version"`
 		URL     string `json:"url"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return 0, "", fmt.Errorf("decode add-version response: %w", err)
+	if err := doRemote(http.MethodPost, endpoint, token, "text/html; charset=utf-8", f, http.StatusCreated, &out); err != nil {
+		return 0, "", fmt.Errorf("add-version failed: %w", err)
 	}
 	return out.Version, out.URL, nil
 }
@@ -498,24 +516,9 @@ type metadata struct {
 // against an httptest.Server.
 func fetchMetadata(baseURL, token, slug string) (metadata, error) {
 	var m metadata
-	endpoint := strings.TrimSuffix(baseURL, "/") + "/artifacts/" + url.PathEscape(slug)
-	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
-	if err != nil {
-		return m, err
-	}
-	req.Header.Set("Authorization", "Bearer "+token)
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return m, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return m, fmt.Errorf("metadata failed: %s: %s", resp.Status, strings.TrimSpace(string(body)))
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&m); err != nil {
-		return m, fmt.Errorf("decode metadata response: %w", err)
+	endpoint := remoteURL(baseURL, "/artifacts/"+url.PathEscape(slug))
+	if err := doRemote(http.MethodGet, endpoint, token, "", nil, http.StatusOK, &m); err != nil {
+		return m, fmt.Errorf("metadata failed: %w", err)
 	}
 	return m, nil
 }
@@ -531,10 +534,14 @@ func versions(args []string) error {
 	if err != nil {
 		return err
 	}
-	if c.BaseURL == "" || c.AccessToken == "" {
-		return fmt.Errorf("artifacta versions requires a remote server + login")
+	if !remoteTarget(c) {
+		return fmt.Errorf("artifacta versions requires a remote server — run: artifacta login <url>")
 	}
-	m, err := fetchMetadata(c.BaseURL, c.AccessToken, slug)
+	token, err := freshToken(&c)
+	if err != nil {
+		return err
+	}
+	m, err := fetchMetadata(c.BaseURL, token, slug)
 	if err != nil {
 		return err
 	}
@@ -562,12 +569,18 @@ func share(args []string) error {
 		return err
 	}
 
-	// Remote API mode: PATCH visibility→invited, then POST the grant.
-	if c.BaseURL != "" && c.AccessToken != "" {
-		if err := setVisibilityRemote(c.BaseURL, c.AccessToken, slug, "invited"); err != nil {
+	// Remote mode: PATCH visibility→invited, then POST the grant, with a fresh
+	// id_token. A missing/expired credential is a hard error — never a silent
+	// local mutation for what the user believes is a remote share.
+	if remoteTarget(c) {
+		token, err := freshToken(&c)
+		if err != nil {
 			return err
 		}
-		if err := addGrantRemote(c.BaseURL, c.AccessToken, slug, grantee); err != nil {
+		if err := setVisibilityRemote(c.BaseURL, token, slug, "invited"); err != nil {
+			return err
+		}
+		if err := addGrantRemote(c.BaseURL, token, slug, grantee); err != nil {
 			return err
 		}
 		fmt.Printf("shared %s with %s\n", slug, grantee)
@@ -576,7 +589,7 @@ func share(args []string) error {
 
 	// Local dev mode: mutate the local store directly.
 	if c.Sub == "" {
-		return fmt.Errorf("not logged in — run: artifacta login")
+		return fmt.Errorf("not logged in — run: artifacta login <url>")
 	}
 	st, _, err := open(c)
 	if err != nil {
@@ -610,26 +623,13 @@ func share(args []string) error {
 // requested visibility and `Authorization: Bearer <token>`. Unit-testable
 // against an httptest.Server.
 func setVisibilityRemote(baseURL, token, slug, visibility string) error {
-	endpoint := strings.TrimSuffix(baseURL, "/") + "/artifacts/" + url.PathEscape(slug) + "/visibility"
+	endpoint := remoteURL(baseURL, "/artifacts/"+url.PathEscape(slug)+"/visibility")
 	body, err := json.Marshal(map[string]string{"visibility": visibility})
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequest(http.MethodPatch, endpoint, bytes.NewReader(body))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return fmt.Errorf("set-visibility failed: %s: %s", resp.Status, strings.TrimSpace(string(b)))
+	if err := doRemote(http.MethodPatch, endpoint, token, "application/json", bytes.NewReader(body), http.StatusOK, nil); err != nil {
+		return fmt.Errorf("set-visibility failed: %w", err)
 	}
 	return nil
 }
@@ -637,26 +637,13 @@ func setVisibilityRemote(baseURL, token, slug, visibility string) error {
 // addGrantRemote POSTs a grant to <baseURL>/artifacts/<slug>/grants with
 // `Authorization: Bearer <token>`. Unit-testable against an httptest.Server.
 func addGrantRemote(baseURL, token, slug, grantee string) error {
-	endpoint := strings.TrimSuffix(baseURL, "/") + "/artifacts/" + url.PathEscape(slug) + "/grants"
+	endpoint := remoteURL(baseURL, "/artifacts/"+url.PathEscape(slug)+"/grants")
 	body, err := json.Marshal(map[string]string{"grantee_sub": grantee})
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(body))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusCreated {
-		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return fmt.Errorf("add-grant failed: %s: %s", resp.Status, strings.TrimSpace(string(b)))
+	if err := doRemote(http.MethodPost, endpoint, token, "application/json", bytes.NewReader(body), http.StatusCreated, nil); err != nil {
+		return fmt.Errorf("add-grant failed: %w", err)
 	}
 	return nil
 }
@@ -666,6 +653,30 @@ func ls() error {
 	if err != nil {
 		return err
 	}
+
+	// Remote mode: list the deployment's artifacts (the caller's own), not the
+	// local store — the previous always-local behavior silently showed the wrong
+	// data when the CLI was pointed at a server.
+	if remoteTarget(c) {
+		token, err := freshToken(&c)
+		if err != nil {
+			return err
+		}
+		rows, err := listRemote(c.BaseURL, token)
+		if err != nil {
+			return err
+		}
+		if len(rows) == 0 {
+			fmt.Println("no artifacts yet — artifacta publish <file>")
+			return nil
+		}
+		for _, r := range rows {
+			fmt.Printf("%-20s  %s  %s\n", r.Visibility, r.URL, r.Title)
+		}
+		return nil
+	}
+
+	// Local dev mode: the on-disk store.
 	st, _, err := open(c)
 	if err != nil {
 		return err
@@ -675,11 +686,11 @@ func ls() error {
 		return err
 	}
 	if len(arts) == 0 {
-		fmt.Println("no artifacts yet — artifacta publish <file>")
+		fmt.Println("no local artifacts — artifacta publish <file> (or: artifacta login <url>)")
 		return nil
 	}
 	for _, a := range arts {
-		fmt.Printf("%s  %-20s  %s/a/%s  %s\n",
+		fmt.Printf("(local) %s  %-20s  %s/a/%s  %s\n",
 			a.GetCreatedAt().AsTime().Format("2006-01-02 15:04"),
 			a.GetVisibility().String(), c.BaseURL, a.GetSlug(), a.GetTitle())
 	}
@@ -694,6 +705,12 @@ func audit(args []string) error {
 	if err != nil {
 		return err
 	}
+	// The audit chain lives in the server's own store; the CLI can only verify a
+	// local store. Pointed at a deployment, say so instead of verifying an empty
+	// or unrelated local log.
+	if remoteTarget(c) {
+		return fmt.Errorf("audit verify runs against a local store; run it on the server host (this CLI is logged in to %s)", c.BaseURL)
+	}
 	st, _, err := open(c)
 	if err != nil {
 		return err
@@ -707,6 +724,69 @@ func audit(args []string) error {
 		return err
 	}
 	fmt.Printf("audit chain OK (%d events)\n", n)
+	return nil
+}
+
+// doctor checks that the CLI can reach the configured server and that its stored
+// credentials authenticate — the "is everything wired up?" health command. It
+// walks connectivity (GET /health) → server auth mode (discovery) → the CLI's own
+// authentication (fresh token + GET /me), printing a ✓/✗ line per step.
+func doctor() error {
+	c, err := config.Load()
+	if err != nil {
+		return err
+	}
+	if c.BaseURL == "" {
+		return fmt.Errorf("no server configured — run: artifacta login <url>")
+	}
+	fmt.Printf("server: %s\n", c.BaseURL)
+
+	if err := doRemote(http.MethodGet, remoteURL(c.BaseURL, "/health"), "", "", nil, http.StatusOK, nil); err != nil {
+		fmt.Printf("  ✗ connect: %v\n", err)
+		return fmt.Errorf("cannot reach server")
+	}
+	fmt.Println("  ✓ connect")
+
+	disc, err := fetchCLIConfig(c.BaseURL)
+	if err != nil {
+		fmt.Printf("  ✗ discovery: %v\n", err)
+		return err
+	}
+	fmt.Printf("  ✓ discovery: auth=%s\n", disc.Auth)
+
+	token, err := freshToken(&c)
+	if err != nil {
+		fmt.Printf("  ✗ auth: %v\n", err)
+		return err
+	}
+	sub, email, err := meRemote(c.BaseURL, token)
+	if err != nil {
+		fmt.Printf("  ✗ auth: %v\n", err)
+		return err
+	}
+	fmt.Printf("  ✓ auth: %s <%s>\n", sub, email)
+	fmt.Println("all checks passed")
+	return nil
+}
+
+// whoami prints the authenticated identity as the server sees it.
+func whoami() error {
+	c, err := config.Load()
+	if err != nil {
+		return err
+	}
+	if !remoteTarget(c) {
+		return fmt.Errorf("not logged in to a server — run: artifacta login <url>")
+	}
+	token, err := freshToken(&c)
+	if err != nil {
+		return err
+	}
+	sub, email, err := meRemote(c.BaseURL, token)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("%s <%s>  @ %s\n", sub, email, c.BaseURL)
 	return nil
 }
 

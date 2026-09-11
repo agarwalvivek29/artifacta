@@ -2,6 +2,20 @@
 
 All notable changes to ArtifactA are documented here. Versions follow [SemVer](https://semver.org).
 
+## 0.0.6 — 2026-09-11
+
+### Fixed
+
+- **CLI login against strict-redirect IdPs (Okta)**: `artifacta login` bound a random loopback
+  port and sent it as the `redirect_uri`, which IdPs that match redirect URIs exactly (Okta)
+  reject with `400 invalid_request` — so login could not complete. The server now advertises a
+  fixed loopback redirect URI (`ARTIFACTA_OIDC_CLI_REDIRECT_URI`, e.g.
+  `http://127.0.0.1:53682/callback`) via the CLI discovery endpoint, and `artifacta login <url>`
+  binds that exact host:port and sends the matching `redirect_uri`. If the port is busy it errors
+  clearly; leaving the var unset keeps the previous ephemeral-port behavior for IdPs that allow any
+  loopback port. The redirect URI is validated as an http loopback (127.0.0.1 / localhost / ::1)
+  with a port, so a non-loopback address is never bound.
+
 ## 0.0.5 — 2026-09-11
 
 ### Added

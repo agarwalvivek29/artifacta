@@ -94,6 +94,12 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /metrics", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte("# metrics: not yet implemented\n"))
 	})
+	// CLI login discovery (exempt, like /health): lets `artifacta login <url>`
+	// bootstrap the loopback PKCE flow from the URL alone — no hand-configured
+	// issuer/client_id. Unwrapped (no auth, no rate limit) and registered here so
+	// it resolves on the apex host before any subdomain rewrite. Exposes only
+	// public values (issuer, client_id, scopes); never the client secret.
+	mux.HandleFunc("GET /.well-known/artifacta-cli", s.cliLoginConfig)
 
 	// Root (FR18, FR19): the dashboard when signed in, else the sign-in landing.
 	// {$} matches only the exact "/" path, so it never shadows the routes below.
@@ -128,6 +134,10 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("POST /artifacts/{slug}/versions", rateLimit(maxBytes(http.HandlerFunc(s.addVersion), maxPublishBytes), contentPerMinute))
 	// Metadata (ADR-0013): authorized read of container + version list.
 	mux.Handle("GET /artifacts/{slug}", rateLimit(http.HandlerFunc(s.metadata), contentPerMinute))
+	// Caller's own artifacts (powers remote `artifacta ls`) and the authenticated
+	// identity probe (powers `artifacta doctor` / `whoami`). Both fail closed 401.
+	mux.Handle("GET /artifacts", rateLimit(http.HandlerFunc(s.listArtifacts), contentPerMinute))
+	mux.Handle("GET /me", rateLimit(http.HandlerFunc(s.me), contentPerMinute))
 
 	// Sharing (FR12, FR13): owner-only mutations. Both fail closed — an
 	// unauthenticated caller gets 401 and a non-owner (or unknown slug) gets a
@@ -497,6 +507,62 @@ func (s *Server) publish(w http.ResponseWriter, r *http.Request) {
 // A missing artifact and a non-owner caller are deliberately indistinguishable —
 // the 404 leaks neither existence nor authorization, mirroring the raw handler.
 // The returned bool reports whether the caller may proceed; when false the
+// cliLoginConfig backs GET /.well-known/artifacta-cli. It returns the OIDC
+// discovery info the CLI needs to log in (issuer, public client_id, scopes), or
+// {"auth":"local"} when the server runs the dev single-token adapter. No secret
+// is ever included — the CLI is a public client and uses PKCE alone.
+func (s *Server) cliLoginConfig(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if s.OIDC == nil {
+		_ = json.NewEncoder(w).Encode(CLIAuthConfig{Auth: "local"})
+		return
+	}
+	_ = json.NewEncoder(w).Encode(s.OIDC.CLILoginConfig())
+}
+
+// me backs GET /me: the authenticated caller's identity, or 401. It is the auth
+// half of `artifacta doctor` — a 200 here proves the CLI's token is accepted.
+func (s *Server) me(w http.ResponseWriter, r *http.Request) {
+	who, ok := s.Auth.Identify(r)
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]string{
+		"sub":   who.GetSub(),
+		"email": who.GetEmail(),
+	})
+}
+
+// listArtifacts backs GET /artifacts: the caller's own artifacts (the dashboard
+// "Mine" set), powering remote `artifacta ls`. Owner-scoped and fail-closed 401.
+func (s *Server) listArtifacts(w http.ResponseWriter, r *http.Request) {
+	who, ok := s.Auth.Identify(r)
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	arts, err := s.Store.ListByOwner(who.GetSub())
+	if err != nil {
+		http.Error(w, "unavailable", http.StatusInternalServerError)
+		return
+	}
+	out := make([]map[string]any, 0, len(arts))
+	for _, a := range arts {
+		out = append(out, map[string]any{
+			"slug":           a.GetSlug(),
+			"title":          a.GetTitle(),
+			"visibility":     visibilityLabel(a.GetVisibility()),
+			"latest_version": a.GetLatestVersion(),
+			"url":            s.BaseURL + "/a/" + a.GetSlug(),
+			"created_at":     a.GetCreatedAt().AsTime().Format(time.RFC3339),
+		})
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(out)
+}
+
 // response has already been written.
 func (s *Server) ownedArtifact(w http.ResponseWriter, r *http.Request, slug string) (*artifactav1.Artifact, *artifactav1.Identity, bool) {
 	who, ok := s.Auth.Identify(r)

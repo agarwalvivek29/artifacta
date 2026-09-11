@@ -2,6 +2,32 @@
 
 All notable changes to ArtifactA are documented here. Versions follow [SemVer](https://semver.org).
 
+## 0.0.5 — 2026-09-11
+
+### Added
+
+- **Production observability** (ADR-0022): structured JSON request logging (`slog`) and a real
+  Prometheus **`GET /metrics`** endpoint — `http_requests_total`, `http_request_duration_seconds`,
+  `http_requests_in_flight`, plus Go runtime/process series. Route labels use the matched route
+  template (`r.Pattern`), so metric cardinality stays bounded regardless of artifact count. Log
+  verbosity via `ARTIFACTA_LOG_LEVEL`; request ids honor an inbound `X-Request-Id` or are generated
+  and echoed. Query strings are never logged (token/PII safe).
+- **Graceful server lifecycle**: `serve` now runs an explicit HTTP server with timeouts
+  (`ReadHeaderTimeout`/`ReadTimeout`/`IdleTimeout`) and drains in-flight requests on SIGINT/SIGTERM,
+  so a rollout no longer cuts a publish or download mid-write. `WriteTimeout` is intentionally unset
+  so a large artifact download to a slow client is never truncated.
+- **`artifacta healthcheck`**: a distroless-friendly container liveness probe (`GET /health`).
+- **Production deploy manifest** `infra/docker-compose.prod.yml` — API + Postgres + a private MinIO
+  bucket with a binary-based healthcheck, durable volumes, and a restart policy (separate from the
+  dev-only `infra/docker-compose.yml`).
+- Server single-token identity is now configurable via `ARTIFACTA_TOKEN` / `ARTIFACTA_SUB` /
+  `ARTIFACTA_EMAIL`, so a containerized local-auth deploy needs no committed `config.json`.
+
+### Fixed
+
+- `serve` fails loud when local (single-token) auth is selected with an empty token, instead of
+  booting a server that silently rejects every request.
+
 ## 0.0.4 — 2026-09-11
 
 ### Added

@@ -113,6 +113,45 @@ func runStoreConformance(t *testing.T, st api.Store) {
 		t.Fatal("ListByGrantee missing artifact for granted subject")
 	}
 
+	// ListByVisibility backs the dashboard's Org tab. Use two dedicated artifacts —
+	// one ORG, one explicitly PRIVATE — with relative assertions so this holds on a
+	// shared, non-empty store: each visibility's listing must include its own
+	// artifact and exclude the other's (visibility is the filter, and it is exact —
+	// e.g. the PRIVATE listing must not sweep in the ORG one).
+	slugOrg, slugPriv := k+"org", k+"priv"
+	if err := st.PutArtifact(&artifactav1.Artifact{
+		Slug: slugOrg, OwnerSub: owner, Visibility: artifactav1.Visibility_VISIBILITY_ORG,
+		LatestVersion: 1, CreatedAt: timestamppb.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.PutArtifact(&artifactav1.Artifact{
+		Slug: slugPriv, OwnerSub: owner, Visibility: artifactav1.Visibility_VISIBILITY_PRIVATE,
+		LatestVersion: 1, CreatedAt: timestamppb.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	orgList, err := st.ListByVisibility(artifactav1.Visibility_VISIBILITY_ORG)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !containsSlug(orgList, slugOrg) {
+		t.Fatal("ListByVisibility(ORG) missing the ORG artifact")
+	}
+	if containsSlug(orgList, slugPriv) {
+		t.Fatal("ListByVisibility(ORG) leaked a PRIVATE artifact")
+	}
+	privList, err := st.ListByVisibility(artifactav1.Visibility_VISIBILITY_PRIVATE)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !containsSlug(privList, slugPriv) {
+		t.Fatal("ListByVisibility(PRIVATE) missing the PRIVATE artifact")
+	}
+	if containsSlug(privList, slugOrg) {
+		t.Fatal("ListByVisibility(PRIVATE) leaked an ORG artifact")
+	}
+
 	// Versions: append + ordered list + get.
 	for _, n := range []int32{1, 2, 3} {
 		if err := st.AddVersion(&artifactav1.ArtifactVersion{Slug: slug, N: n, ContentType: "text/html", CreatedAt: timestamppb.Now()}); err != nil {

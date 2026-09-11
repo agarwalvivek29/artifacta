@@ -1,7 +1,7 @@
 # 0006 — S3-compatible blob adapter, backend-only (no presigned URLs)
 
 **Date**: 2026-08-09
-**Status**: Proposed
+**Status**: Accepted (implemented 2026-09-11)
 **Deciders**: Vivek Agarwal
 **Issue**: N/A
 
@@ -69,3 +69,27 @@ violating `ARCHITECTURE.md` constraints and the product's core claim.
 Rejected for the same reason at v2: a cacheable edge URL is a client-reachable path to
 bytes that skips per-view authorization. Revisit only with signed, per-view, audited
 edge auth — out of scope.
+
+---
+
+## Implementation notes (2026-09-11)
+
+- Adapter: `internal/infra/blob_s3.go` (`BlobS3`), selected via `ARTIFACTA_BLOB=s3`
+  alongside the existing filesystem default. It satisfies the same `api.Blob`
+  interface as `BlobFS`, keyed `<slug>.v<n>.bundle` (one object per version).
+- **`Get` streams** the object body straight through (no buffering); a missing
+  object is translated to an `fs.ErrNotExist`-wrapping error so the viewer's
+  `os.IsNotExist` check maps it to a not-leaking 404, identical to the FS adapter.
+- **`Put` buffers** the (small — see above) bundle into a seekable body so
+  `PutObject` computes Content-Length + checksum locally. This avoids the
+  deprecated upload manager and the streamed-trailing-checksum incompatibilities
+  some MinIO/R2 builds have. True streamed multipart upload is a later option if
+  artifact sizes ever grow.
+- SSE-at-rest is left to bucket configuration (the ADR minimum). **App-side
+  envelope encryption before `Put` is deferred** to a follow-up — the interface
+  and call sites don't change when it lands.
+- Backend generic via AWS SDK v2 with configurable endpoint + path-style; MinIO is
+  the self-host default (commented block in `infra/docker-compose.yml`).
+- Conformance: `internal/infra/blob_conformance_test.go` runs the same byte
+  round-trip + fail-closed checks against `BlobFS` always and `BlobS3` when
+  `ARTIFACTA_TEST_S3_BUCKET` (+ endpoint/keys) is set.

@@ -49,8 +49,20 @@ Usage:
   artifacta publish --update <slug> <file>
                             append a new version to an existing artifact
   artifacta versions <slug>   list an artifact's versions
-  artifacta share <slug> <grantee-sub>
-                            share an artifact with a subject (sets visibility to invited)
+  artifacta share <slug> <email-or-sub>
+                            share an artifact (invite by email or subject; sets visibility to invited)
+  artifacta unshare <slug> <email-or-sub>
+                            revoke a person's access to an artifact
+  artifacta visibility <slug> <private|invited|org|link>
+                            set an artifact's visibility explicitly
+  artifacta label <slug> <label>
+                            claim a custom subdomain label ({label}.{root})
+  artifacta comment add <slug> <text> [--reply <parent-id>]
+                            add a comment (or a threaded reply) to an artifact
+  artifacta comment ls <slug>
+                            list an artifact's comments
+  artifacta comment resolve <slug> <id>
+                            resolve a comment thread (owner only)
   artifacta ls                list your artifacts
   artifacta serve             run the viewer server
   artifacta healthcheck       probe a running server's /health (exit 0 = healthy)
@@ -80,6 +92,14 @@ func Run(args []string) error {
 		return versions(args[1:])
 	case "share":
 		return share(args[1:])
+	case "visibility":
+		return visibility(args[1:])
+	case "unshare":
+		return unshare(args[1:])
+	case "label":
+		return label(args[1:])
+	case "comment":
+		return comment(args[1:])
 	case "ls":
 		return ls()
 	case "serve":
@@ -586,67 +606,282 @@ func versions(args []string) error {
 	return nil
 }
 
-// share grants a subject access to an artifact (FR12, FR13). A PRIVATE artifact
+// share grants a person access to an artifact (FR12, FR13). A PRIVATE artifact
 // ignores grants, so sharing first flips visibility to INVITED and then records
-// the grant. Remote mode drives the two owner-only API endpoints with the stored
-// Bearer token; local mode does the equivalent directly against the local store.
+// the grant, driving the two owner-only API endpoints with the stored Bearer
+// token. The grantee may be an email (invite-by-email, ADR-0019) or a known
+// subject — addGrantRemote auto-detects which. Remote-only: like the other
+// sharing commands it requires a deployment so its behavior is identical
+// everywhere and never silently mutates a local store.
 func share(args []string) error {
 	if len(args) < 2 {
-		return fmt.Errorf("usage: artifacta share <slug> <grantee-sub>")
+		return fmt.Errorf("usage: artifacta share <slug> <email-or-sub>")
 	}
 	slug, grantee := args[0], args[1]
 	c, err := config.Load()
 	if err != nil {
 		return err
 	}
+	if !remoteTarget(c) {
+		return fmt.Errorf("artifacta share requires a remote server — run: artifacta login <url>")
+	}
+	token, err := freshToken(&c)
+	if err != nil {
+		return err
+	}
+	if err := setVisibilityRemote(c.BaseURL, token, slug, "invited"); err != nil {
+		return err
+	}
+	if err := addGrantRemote(c.BaseURL, token, slug, grantee); err != nil {
+		return err
+	}
+	fmt.Printf("shared %s with %s\n", slug, grantee)
+	return nil
+}
 
-	// Remote mode: PATCH visibility→invited, then POST the grant, with a fresh
-	// id_token. A missing/expired credential is a hard error — never a silent
-	// local mutation for what the user believes is a remote share.
-	if remoteTarget(c) {
-		token, err := freshToken(&c)
-		if err != nil {
-			return err
+// visibility sets an artifact's visibility explicitly (PATCH …/visibility). The
+// level is validated client-side before any network call so a typo never reaches
+// the server. Remote-only, like the other sharing commands.
+func visibility(args []string) error {
+	if len(args) < 2 {
+		return fmt.Errorf("usage: artifacta visibility <slug> <private|invited|org|link>")
+	}
+	slug, level := args[0], args[1]
+	switch level {
+	case "private", "invited", "org", "link":
+	default:
+		return fmt.Errorf("invalid visibility %q (want private, invited, org, or link)", level)
+	}
+	c, err := config.Load()
+	if err != nil {
+		return err
+	}
+	if !remoteTarget(c) {
+		return fmt.Errorf("artifacta visibility requires a remote server — run: artifacta login <url>")
+	}
+	token, err := freshToken(&c)
+	if err != nil {
+		return err
+	}
+	if err := setVisibilityRemote(c.BaseURL, token, slug, level); err != nil {
+		return err
+	}
+	fmt.Printf("%s is now %s\n", slug, level)
+	return nil
+}
+
+// unshare revokes a person's access to an artifact (DELETE …/grants/{grantee}).
+// The grantee may be an email or a subject. Remote-only.
+func unshare(args []string) error {
+	if len(args) < 2 {
+		return fmt.Errorf("usage: artifacta unshare <slug> <email-or-sub>")
+	}
+	slug, grantee := args[0], args[1]
+	c, err := config.Load()
+	if err != nil {
+		return err
+	}
+	if !remoteTarget(c) {
+		return fmt.Errorf("artifacta unshare requires a remote server — run: artifacta login <url>")
+	}
+	token, err := freshToken(&c)
+	if err != nil {
+		return err
+	}
+	if err := removeGrantRemote(c.BaseURL, token, slug, grantee); err != nil {
+		return err
+	}
+	fmt.Printf("revoked %s access to %s\n", grantee, slug)
+	return nil
+}
+
+// label claims a custom subdomain label for an artifact (PATCH …/label), making
+// it reachable at {label}.{root-domain}. Remote-only. When the deployment has no
+// RootDomain configured the server returns an empty subdomain_url; rather than
+// print a blank line we fall back to the canonical path link and say so.
+func label(args []string) error {
+	if len(args) < 2 {
+		return fmt.Errorf("usage: artifacta label <slug> <label>")
+	}
+	slug, lbl := args[0], args[1]
+	c, err := config.Load()
+	if err != nil {
+		return err
+	}
+	if !remoteTarget(c) {
+		return fmt.Errorf("artifacta label requires a remote server — run: artifacta login <url>")
+	}
+	token, err := freshToken(&c)
+	if err != nil {
+		return err
+	}
+	subdomainURL, err := setLabelRemote(c.BaseURL, token, slug, lbl)
+	if err != nil {
+		return err
+	}
+	if subdomainURL != "" {
+		fmt.Printf("labeled %s → %s\n", slug, subdomainURL)
+	} else {
+		fmt.Printf("labeled %s as %q → %s/a/%s (subdomain hosting not enabled on this server)\n",
+			slug, lbl, strings.TrimSuffix(c.BaseURL, "/"), slug)
+	}
+	return nil
+}
+
+const commentUsage = `usage: artifacta comment <add|ls|resolve> ...
+  artifacta comment add <slug> <text> [--reply <parent-id>]
+  artifacta comment ls <slug>
+  artifacta comment resolve <slug> <id>
+`
+
+// comment is the two-level sub-router for review comments (ADR-0014/0016). All
+// subcommands are remote-only. `add` posts a page-level comment, or a threaded
+// reply with --reply <parent-id>; `ls` lists them (grouping replies under their
+// root and marking resolved rows); `resolve` marks a thread resolved (owner-only).
+func comment(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("%s", commentUsage)
+	}
+	switch args[0] {
+	case "add":
+		return commentAdd(args[1:])
+	case "ls", "list":
+		return commentLs(args[1:])
+	case "resolve":
+		return commentResolve(args[1:])
+	default:
+		return fmt.Errorf("unknown comment subcommand %q\n%s", args[0], commentUsage)
+	}
+}
+
+func commentAdd(args []string) error {
+	// Parse <slug> <text> with an optional --reply <parent-id> anywhere in the args.
+	var parentID string
+	var positional []string
+	for i := 0; i < len(args); i++ {
+		if args[i] == "--reply" {
+			if i+1 >= len(args) {
+				return fmt.Errorf("usage: artifacta comment add <slug> <text> [--reply <parent-id>]")
+			}
+			parentID = args[i+1]
+			i++
+			continue
 		}
-		if err := setVisibilityRemote(c.BaseURL, token, slug, "invited"); err != nil {
-			return err
-		}
-		if err := addGrantRemote(c.BaseURL, token, slug, grantee); err != nil {
-			return err
-		}
-		fmt.Printf("shared %s with %s\n", slug, grantee)
+		positional = append(positional, args[i])
+	}
+	if len(positional) < 2 {
+		return fmt.Errorf("usage: artifacta comment add <slug> <text> [--reply <parent-id>]")
+	}
+	slug, text := positional[0], positional[1]
+	c, err := config.Load()
+	if err != nil {
+		return err
+	}
+	if !remoteTarget(c) {
+		return fmt.Errorf("artifacta comment requires a remote server — run: artifacta login <url>")
+	}
+	token, err := freshToken(&c)
+	if err != nil {
+		return err
+	}
+	id, err := addCommentRemote(c.BaseURL, token, slug, text, parentID)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("comment %s added\n", id)
+	return nil
+}
+
+func commentLs(args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("usage: artifacta comment ls <slug>")
+	}
+	slug := args[0]
+	c, err := config.Load()
+	if err != nil {
+		return err
+	}
+	if !remoteTarget(c) {
+		return fmt.Errorf("artifacta comment requires a remote server — run: artifacta login <url>")
+	}
+	token, err := freshToken(&c)
+	if err != nil {
+		return err
+	}
+	rows, err := listCommentsRemote(c.BaseURL, token, slug)
+	if err != nil {
+		return err
+	}
+	if len(rows) == 0 {
+		fmt.Printf("no comments on %s\n", slug)
 		return nil
 	}
+	// The server returns a flat list; group replies under their root so a thread
+	// reads top-to-bottom. Roots print in server order; each root is followed by
+	// its replies (indented). Orphan replies (root not in the list) print at the
+	// end so nothing is silently dropped.
+	replies := map[string][]commentRow{}
+	var roots []commentRow
+	seen := map[string]bool{}
+	for _, r := range rows {
+		seen[r.ID] = true
+		if r.ParentID == "" {
+			roots = append(roots, r)
+		} else {
+			replies[r.ParentID] = append(replies[r.ParentID], r)
+		}
+	}
+	printRow := func(r commentRow, reply bool) {
+		prefix := ""
+		if reply {
+			prefix = "  ↳ "
+		}
+		var tags string
+		if r.Resolved {
+			tags += " [resolved]"
+		}
+		if r.Anchor != nil && r.Anchor.Quote != "" {
+			tags += " [anchored]"
+		}
+		fmt.Printf("%s%s  v%d  %s%s  %s\n", prefix, r.ID, r.Version, r.AuthorEmail, tags, r.Body)
+	}
+	for _, root := range roots {
+		printRow(root, false)
+		for _, rep := range replies[root.ID] {
+			printRow(rep, true)
+		}
+	}
+	for pid, reps := range replies {
+		if seen[pid] {
+			continue // already printed under its root above
+		}
+		for _, rep := range reps {
+			printRow(rep, true)
+		}
+	}
+	return nil
+}
 
-	// Local dev mode: mutate the local store directly.
-	if c.Sub == "" {
-		return fmt.Errorf("not logged in — run: artifacta login <url>")
+func commentResolve(args []string) error {
+	if len(args) < 2 {
+		return fmt.Errorf("usage: artifacta comment resolve <slug> <id>")
 	}
-	st, _, err := open(c)
+	slug, id := args[0], args[1]
+	c, err := config.Load()
 	if err != nil {
 		return err
 	}
-	art, ok, err := st.GetArtifact(slug)
+	if !remoteTarget(c) {
+		return fmt.Errorf("artifacta comment requires a remote server — run: artifacta login <url>")
+	}
+	token, err := freshToken(&c)
 	if err != nil {
 		return err
 	}
-	if !ok || art.GetOwnerSub() != c.Sub {
-		return fmt.Errorf("no such artifact: %s", slug)
-	}
-	art.Visibility = artifactav1.Visibility_VISIBILITY_INVITED
-	if err := st.PutArtifact(art); err != nil {
+	if err := resolveCommentRemote(c.BaseURL, token, slug, id); err != nil {
 		return err
 	}
-	if err := st.AddGrant(&artifactav1.Grant{
-		Slug: slug, GranteeSub: grantee, GrantedBy: c.Sub, CreatedAt: timestamppb.Now(),
-	}); err != nil {
-		return err
-	}
-	_ = st.Append(&artifactav1.AuditEvent{
-		Ts: timestamppb.Now(), PrincipalSub: c.Sub, Slug: slug,
-		Action: artifactav1.AuditAction_AUDIT_ACTION_SHARE, Allowed: true,
-	})
-	fmt.Printf("shared %s with %s\n", slug, grantee)
+	fmt.Printf("resolved comment %s\n", id)
 	return nil
 }
 
@@ -666,10 +901,17 @@ func setVisibilityRemote(baseURL, token, slug, visibility string) error {
 }
 
 // addGrantRemote POSTs a grant to <baseURL>/artifacts/<slug>/grants with
-// `Authorization: Bearer <token>`. Unit-testable against an httptest.Server.
+// `Authorization: Bearer <token>`. The grantee is auto-detected: an address that
+// looks like an email is sent as {"email":...} (invite-by-email, ADR-0019),
+// otherwise as {"grantee_sub":...} for a known subject. The server re-validates
+// either way. Unit-testable against an httptest.Server.
 func addGrantRemote(baseURL, token, slug, grantee string) error {
 	endpoint := remoteURL(baseURL, "/artifacts/"+url.PathEscape(slug)+"/grants")
-	body, err := json.Marshal(map[string]string{"grantee_sub": grantee})
+	field := "grantee_sub"
+	if looksLikeEmail(grantee) {
+		field = "email"
+	}
+	body, err := json.Marshal(map[string]string{field: grantee})
 	if err != nil {
 		return err
 	}

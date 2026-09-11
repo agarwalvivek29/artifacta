@@ -1,11 +1,61 @@
 package cli
 
 import (
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 )
+
+// versionServer returns an httptest server whose /version reports ver.
+func versionServer(t *testing.T, ver string) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"version":"` + ver + `","min_cli_version":"0.0.1","capabilities":[]}`))
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// captureStdout runs f and returns whatever it wrote to os.Stdout.
+func captureStdout(t *testing.T, f func()) string {
+	t.Helper()
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = w
+	f()
+	_ = w.Close()
+	os.Stdout = old
+	b, _ := io.ReadAll(r)
+	return string(b)
+}
+
+func TestNoteVersionMismatch(t *testing.T) {
+	orig := Version
+	t.Cleanup(func() { Version = orig })
+
+	// Matched → silent.
+	Version = "0.0.5"
+	if out := captureStdout(t, func() { noteVersionMismatch(versionServer(t, "0.0.5").URL) }); out != "" {
+		t.Fatalf("matched version should be silent, got: %q", out)
+	}
+	// CLI newer than deployment → advises a downgrade with the pinned version.
+	Version = "0.0.6"
+	out := captureStdout(t, func() { noteVersionMismatch(versionServer(t, "0.0.4").URL) })
+	if !strings.Contains(out, "downgrade") || !strings.Contains(out, "ARTIFACTA_VERSION=0.0.4") {
+		t.Fatalf("newer CLI should advise a downgrade to the deployment version, got: %q", out)
+	}
+	// Unreachable server → silent (never fails the caller).
+	if out := captureStdout(t, func() { noteVersionMismatch("http://127.0.0.1:0") }); out != "" {
+		t.Fatalf("unreachable server should be silent, got: %q", out)
+	}
+}
 
 func TestCmpVersion(t *testing.T) {
 	cases := []struct {

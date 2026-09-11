@@ -169,6 +169,22 @@ func decideMatch(current, serverVer string) upgradeAdvice {
 		current, serverVer, pinnedInstall(serverVer), current)}
 }
 
+// noteVersionMismatch best-effort warns when the running CLI's version differs
+// from the deployment it is talking to, printing the exact command to match it
+// (upgrade or downgrade). It is advisory: it prints nothing when the versions
+// match and never fails the caller when the server can't be reached. Used right
+// after login and by doctor so a mismatch surfaces immediately, not later.
+func noteVersionMismatch(baseURL string) {
+	sv, _, _, err := serverVersion(baseURL)
+	if err != nil {
+		return
+	}
+	if Version != "dev" && cmpVersion(Version, sv) == 0 {
+		return
+	}
+	fmt.Println(decideMatch(Version, sv).message)
+}
+
 // upgrade advises whether to change the installed CLI. When the CLI is logged in
 // to a deployment, the deployment's version is the anchor (match it, up or down).
 // Otherwise it falls back to checking GitHub for a newer release and reasoning

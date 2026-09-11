@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 
 	artifactav1 "github.com/agarwalvivek29/here.now/packages/schema/generated/go/artifacta/v1"
 )
@@ -30,9 +31,22 @@ type Config struct {
 	// required when StoreBackend is "postgres".
 	StoreBackend string `json:"store_backend"`
 	DatabaseURL  string `json:"database_url"`
-	Token        string `json:"token"`
-	Sub          string `json:"sub"`
-	Email        string `json:"email"`
+	// BlobBackend selects the artifact-bytes store (ADR-0006): "file" (default;
+	// bundles on local disk under DataDir/blobs) or "s3" (any S3-compatible
+	// backend — AWS S3, MinIO, R2, B2, Wasabi). The S3 backend is used strictly
+	// server-side: the app performs Get/Put with its own credentials and streams
+	// bytes through itself after CanView — no presigned URLs reach the client. The
+	// S3* fields configure the "s3" backend and are ignored for "file".
+	BlobBackend       string `json:"blob_backend"`
+	S3Endpoint        string `json:"s3_endpoint"`
+	S3Region          string `json:"s3_region"`
+	S3Bucket          string `json:"s3_bucket"`
+	S3AccessKeyID     string `json:"s3_access_key_id"`
+	S3SecretAccessKey string `json:"s3_secret_access_key"`
+	S3ForcePathStyle  bool   `json:"s3_force_path_style"`
+	Token             string `json:"token"`
+	Sub               string `json:"sub"`
+	Email             string `json:"email"`
 	// OIDC browser-SSO settings (ADR-0007, FR6). When OIDCIssuer + OIDCClientID
 	// are set, the server wires the OIDC provider and its /login + /callback
 	// handlers; otherwise it falls back to the Local single-token adapter.
@@ -106,6 +120,13 @@ func applyEnv(c *Config) {
 	setFromEnv("ARTIFACTA_LOGO_URL", &c.LogoURL)
 	setFromEnv("ARTIFACTA_STORE", &c.StoreBackend)
 	setFromEnv("ARTIFACTA_DATABASE_URL", &c.DatabaseURL)
+	setFromEnv("ARTIFACTA_BLOB", &c.BlobBackend)
+	setFromEnv("ARTIFACTA_S3_ENDPOINT", &c.S3Endpoint)
+	setFromEnv("ARTIFACTA_S3_REGION", &c.S3Region)
+	setFromEnv("ARTIFACTA_S3_BUCKET", &c.S3Bucket)
+	setFromEnv("ARTIFACTA_S3_ACCESS_KEY_ID", &c.S3AccessKeyID)
+	setFromEnv("ARTIFACTA_S3_SECRET_ACCESS_KEY", &c.S3SecretAccessKey)
+	setBoolFromEnv("ARTIFACTA_S3_FORCE_PATH_STYLE", &c.S3ForcePathStyle)
 	setFromEnv("ARTIFACTA_OIDC_ISSUER", &c.OIDCIssuer)
 	setFromEnv("ARTIFACTA_OIDC_CLIENT_ID", &c.OIDCClientID)
 	setFromEnv("ARTIFACTA_OIDC_CLIENT_SECRET", &c.OIDCClientSecret)
@@ -118,6 +139,14 @@ func applyEnv(c *Config) {
 func setFromEnv(key string, dst *string) {
 	if v := os.Getenv(key); v != "" {
 		*dst = v
+	}
+}
+
+// setBoolFromEnv sets dst from a truthy env var ("1", "true", "yes", any case).
+// It only overrides when the var is set and non-empty, matching setFromEnv.
+func setBoolFromEnv(key string, dst *bool) {
+	if v := os.Getenv(key); v != "" {
+		*dst = v == "1" || strings.EqualFold(v, "true") || strings.EqualFold(v, "yes")
 	}
 }
 

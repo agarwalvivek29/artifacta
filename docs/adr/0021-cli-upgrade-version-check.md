@@ -19,22 +19,35 @@ the **deployed server version** and whether the **new CLI release requires** a n
 
 ## Decision
 
+0. **Co-release invariant.** The CLI and server are one binary; every release tag builds both
+   (server image + CLI binaries) at the identical version from the same commit
+   (`.github/workflows/release.yml`). So a server version always ships with each CLI version,
+   and `cli.Version == server.Version` for a given release. **The deployment's running version
+   is therefore the compatibility anchor: the guaranteed-compatible CLI is the one whose version
+   matches the deployment.**
+
 1. **Server version endpoint** `GET /version` (unauthenticated, exempt like `/health`) returns
    `{ version, min_cli_version, capabilities[] }` — the deployed build version, the oldest CLI
    the server accepts, and capability flags for future feature-based checks.
-2. **Release declares its server dependency.** Each CLI release may carry a
-   `min-server-version: X.Y.Z` marker in its GitHub release body. Absent = the release is
-   independent of the deployed server version. The CLI reads this from the GitHub
-   latest-release API.
-3. **`artifacta upgrade` decision** (pure function `decideUpgrade`):
-   - Not newer than the running CLI → "up to date".
-   - Newer and **independent** (no marker) → prompt the upgrade unconditionally.
-   - Newer and **server-dependent**: if logged in to a deployment, read `GET /version`; prompt
-     the upgrade only when `server_version >= min-server-version`, otherwise advise upgrading
-     the server first. If not logged in, advise logging in to check (or upgrading at the user's
-     discretion).
-4. **Advise, never self-update.** `upgrade` prints guidance + the canonical install one-liner;
-   it does not replace the binary (install method varies: script, GHCR, package managers).
+
+2. **Match the deployment (primary path).** When the CLI is logged in to a deployment,
+   `artifacta upgrade` anchors on its `/version` and recommends installing that exact version —
+   **upgrading or downgrading** — so a user on the latest CLI whose deployment is older is told
+   to match it rather than being stranded. `install.sh` accepts a deployment URL
+   (`ARTIFACTA_DEPLOYMENT=<url>` or `--url <url>`), queries `<url>/version`, and installs the
+   matching CLI. This is the robust default: the CLI always tracks the deployment it talks to.
+
+3. **Release declares its server dependency (fallback signal).** A CLI release may carry a
+   `min-server-version: X.Y.Z` marker in its GitHub release body; absent = independent of the
+   deployed server version. Used only in the not-logged-in path.
+
+4. **`artifacta upgrade` decision.** Logged in → the deployment-match path (`decideMatch`). Not
+   logged in, or the server is unreachable → `decideUpgrade` against the latest GitHub release:
+   not newer → "up to date"; newer + independent → prompt the upgrade; newer + server-dependent
+   → advise logging in to a deployment to verify compatibility.
+
+5. **Advise, never self-update.** `upgrade` prints guidance + a (version-pinned) install
+   one-liner; it does not replace the binary (install method varies: script, GHCR, packages).
 
 ---
 

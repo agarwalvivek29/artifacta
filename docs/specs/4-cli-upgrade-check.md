@@ -22,8 +22,11 @@ upgrade if the server is new enough; otherwise it says to upgrade the server fir
 ### In Scope
 
 - `GET /version` (unauthenticated): `{ version, min_cli_version, capabilities[] }`.
-- `artifacta upgrade` (alias `--upgrade`): GitHub latest-release check + server-aware decision.
-- `min-server-version:` release-body convention for declaring a server dependency.
+- `artifacta upgrade` (alias `--upgrade`): **deployment-anchored** — when logged in, match the
+  deployment's exact version (upgrade **or downgrade**); otherwise a GitHub latest-release check.
+- Install-by-URL: `ARTIFACTA_DEPLOYMENT=<url>` / `--url <url>` makes `install.sh` install the
+  version the deployment runs (queries `<url>/version`).
+- `min-server-version:` release-body convention for the not-logged-in server-dependency hint.
 
 ### Out of Scope
 
@@ -37,9 +40,11 @@ upgrade if the server is new enough; otherwise it says to upgrade the server fir
 - [x] `GET /version` returns the deployed version + `min_cli_version` + `capabilities`,
       unauthenticated, and defaults `version` to `dev` when unset.
 - [x] `upgrade` reports "up to date" when the running CLI is >= the latest release.
-- [x] A newer, server-independent release (no marker) prompts the upgrade unconditionally.
-- [x] A newer, server-dependent release prompts the upgrade only when the deployment's version >= `min-server-version`; otherwise it advises upgrading the server first.
-- [x] Not logged in to a deployment → advise logging in to check, or upgrading at discretion.
+- [x] Logged in to a deployment → `upgrade` recommends the deployment's exact version:
+      compatible when equal, upgrade when the CLI is older, **downgrade when the CLI is newer**.
+- [x] `install.sh` with a deployment URL installs the version that deployment runs.
+- [x] Not logged in → a newer independent release prompts an upgrade; a server-dependent one
+      advises logging in to verify.
 
 ---
 

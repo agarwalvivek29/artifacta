@@ -199,6 +199,18 @@
     .share-md .done{background:var(--accent);color:var(--on-accent);border:1px solid transparent;border-radius:10px;padding:9px 20px;font:inherit;font-size:14px;font-weight:600;cursor:pointer}
     .share-md .done:hover{background:var(--accent-hover)}
     @media (prefers-reduced-motion:reduce){.share-md *{transition:none!important}}
+    /* Upload form (ADR-0024), gated by ARTIFACTA_UPLOAD_UI */
+    .upload{margin:6px 0 30px;padding:18px 20px;border:1px solid var(--line);border-radius:14px;background:var(--surface)}
+    .upload h2{margin:0 0 4px;font-size:15px}
+    .upload .hint{margin:0 0 14px;font-size:12.5px;color:var(--muted)}
+    .upload form{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+    .upload input[type=file]{flex:1 1 260px;min-width:0;font:inherit;font-size:13px;color:var(--muted);
+      padding:8px;border:1px dashed var(--line);border-radius:10px;background:var(--surface-2)}
+    .upload input[type=text]{flex:1 1 180px;min-width:0;font:inherit;font-size:14px;padding:9px 12px;
+      border:1px solid var(--line);border-radius:10px;background:var(--surface-2);color:var(--ink)}
+    .upload button{flex:none;background:var(--accent);color:var(--on-accent);border:1px solid transparent;
+      border-radius:10px;padding:10px 22px;font:inherit;font-size:14px;font-weight:600;cursor:pointer}
+    .upload button:hover{background:var(--accent-hover)}
   </style>
 </head>
 <body>
@@ -251,6 +263,19 @@
         </div>
         {{end}}
       </div>
+    {{end}}
+
+    {{if .UploadEnabled}}
+    <div class="upload">
+      <h2>Upload an artifact</h2>
+      <p class="hint">HTML, PDF, or an image (PNG, JPEG, GIF, WebP, SVG), up to 25&nbsp;MiB. Private by default — you control who sees it.</p>
+      <form method="POST" action="/artifacts" enctype="multipart/form-data">
+        <input type="file" name="file"
+               accept=".html,.htm,.pdf,.png,.jpg,.jpeg,.gif,.webp,.svg,text/html,application/pdf,image/png,image/jpeg,image/gif,image/webp,image/svg+xml" required>
+        <input type="text" name="title" placeholder="Title (optional)" maxlength="200">
+        <button type="submit">Upload</button>
+      </form>
+    </div>
     {{end}}
 
     <div class="section">

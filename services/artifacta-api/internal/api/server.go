@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -100,6 +101,27 @@ type Server struct {
 	// posture is actually enforced; true keeps the permissive https: CSP so a
 	// CDN-import artifact renders. See ADR-0023.
 	Egress bool
+	// UploadUI, when true, renders the dashboard "Upload an artifact" form and
+	// accepts the multipart POST /artifacts branch (ADR-0024). Default false keeps
+	// the surface dark; the raw-body CLI publish path is unaffected either way.
+	UploadUI bool
+}
+
+// uploadAllowlist maps a lower-case file extension to the canonical Content-Type
+// the browser-upload path will store. Content type is SERVER-decided from the
+// extension (validated here), never taken from the client's multipart header, so
+// an upload can't assert an active type that would escape the sandbox. Anything
+// not in this map is rejected 415. (ADR-0024, spec 5.)
+var uploadAllowlist = map[string]string{
+	".html": "text/html; charset=utf-8",
+	".htm":  "text/html; charset=utf-8",
+	".pdf":  "application/pdf",
+	".png":  "image/png",
+	".jpg":  "image/jpeg",
+	".jpeg": "image/jpeg",
+	".gif":  "image/gif",
+	".webp": "image/webp",
+	".svg":  "image/svg+xml",
 }
 
 // contentCSP returns the Content-Security-Policy for served artifact bytes,
@@ -264,11 +286,12 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := web.DashboardData{
-		Email:   who.GetEmail(),
-		OrgName: s.OrgName,
-		LogoURL: s.LogoURL,
-		Mine:    toViews(mine),
-		Shared:  toViews(shared),
+		Email:         who.GetEmail(),
+		OrgName:       s.OrgName,
+		LogoURL:       s.LogoURL,
+		Mine:          toViews(mine),
+		Shared:        toViews(shared),
+		UploadEnabled: s.UploadUI,
 	}
 	// Mine artifacts are owned by the caller — mark them so the dashboard shows the
 	// owner-only Share control on those cards.
@@ -469,7 +492,13 @@ func (s *Server) publish(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized) // don't leak anything
 		return
 	}
-	owner := who.GetSub()
+
+	// Browser upload branch (ADR-0024): a multipart/form-data body is the
+	// dashboard upload form. The raw-body path below (CLI, Bearer) is unchanged.
+	if isMultipartForm(r) {
+		s.publishUpload(w, r, who)
+		return
+	}
 
 	title := r.URL.Query().Get("title")
 	if title == "" {
@@ -482,12 +511,10 @@ func (s *Server) publish(w http.ResponseWriter, r *http.Request) {
 
 	slug := domain.NewSlug()
 
-	// Read the body up to the maxBytes ceiling. Unlike the earlier
-	// stream-to-blob path, publish now buffers the payload so the render
-	// pipeline can bundle inline module scripts before storage (FR15,
-	// ADR-0010). Buffering the whole body is acceptable under the 25 MiB cap.
-	// An over-limit body still trips the maxBytes guard on read and surfaces as
-	// a MaxBytesError, which we translate to 413.
+	// Read the body up to the maxBytes ceiling. publish buffers the payload so the
+	// render pipeline can bundle inline module scripts before storage (FR15,
+	// ADR-0010). An over-limit body trips the maxBytes guard on read and surfaces
+	// as a MaxBytesError, which we translate to 413.
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		var mbe *http.MaxBytesError
@@ -501,49 +528,14 @@ func (s *Server) publish(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Render-parity pipeline: render Markdown to self-contained HTML and bundle
-	// inline ES modules, so the stored artifact renders under the strict CSP.
-	// Fail-soft — Prepare returns the original bytes (plus warnings) rather than
-	// erroring, so a publish is never blocked by a rendering problem. The egress
-	// posture flag is threaded into Options in a later increment.
+	// Render-parity pipeline (fail-soft): Markdown → self-contained HTML, inline
+	// ES modules bundled, under the egress posture. Never blocks a publish.
 	bundled, bundledCT, _, _ := render.Prepare(body, ct, render.Options{Egress: s.Egress})
-	ct = bundledCT
 
-	// A new artifact starts at version 1 (ADR-0013).
-	const firstVersion = 1
-	if err := s.Blob.Put(slug, firstVersion, bytes.NewReader(bundled)); err != nil {
-		s.audit(who, slug, artifactav1.AuditAction_AUDIT_ACTION_DENY, false)
+	if err := s.storeArtifact(who, slug, title, bundledCT, bundled); err != nil {
 		http.Error(w, "unavailable", http.StatusInternalServerError)
 		return
 	}
-
-	now := timestamppb.Now()
-	art := &artifactav1.Artifact{
-		Slug:          slug,
-		OwnerSub:      owner,
-		Title:         title,
-		Visibility:    artifactav1.Visibility_VISIBILITY_PRIVATE, // private by default
-		ContentType:   ct,
-		CreatedAt:     now,
-		LatestVersion: firstVersion,
-	}
-	if err := s.Store.AddVersion(&artifactav1.ArtifactVersion{
-		Slug:        slug,
-		N:           firstVersion,
-		ContentType: ct,
-		CreatedAt:   now,
-		CreatedBy:   owner,
-	}); err != nil {
-		s.audit(who, slug, artifactav1.AuditAction_AUDIT_ACTION_DENY, false)
-		http.Error(w, "unavailable", http.StatusInternalServerError)
-		return
-	}
-	if err := s.Store.PutArtifact(art); err != nil {
-		s.audit(who, slug, artifactav1.AuditAction_AUDIT_ACTION_DENY, false)
-		http.Error(w, "unavailable", http.StatusInternalServerError)
-		return
-	}
-	s.audit(who, slug, artifactav1.AuditAction_AUDIT_ACTION_PUBLISH, true)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
@@ -551,6 +543,143 @@ func (s *Server) publish(w http.ResponseWriter, r *http.Request) {
 		"slug": slug,
 		"url":  s.BaseURL + "/a/" + slug,
 	})
+}
+
+// publishUpload handles the dashboard's multipart upload form (ADR-0024, spec 5).
+// It is gated by the UploadUI toggle and a same-origin check, accepts a single
+// file of a server-decided allowlisted type, and creates an ordinary
+// private-by-default v1 artifact — identical lifecycle to a CLI publish — then
+// redirects the browser to the new artifact. The raw-body CLI path is untouched.
+func (s *Server) publishUpload(w http.ResponseWriter, r *http.Request, who *artifactav1.Identity) {
+	if !s.UploadUI {
+		http.Error(w, "upload disabled", http.StatusBadRequest)
+		return
+	}
+	// CSRF: a cookie-authed, state-changing browser POST. The session cookie is
+	// already SameSite; additionally require the Origin/Referer (when present) to
+	// match this deployment's host so a cross-site form can't drive an upload.
+	if !s.sameOrigin(r) {
+		http.Error(w, "bad origin", http.StatusForbidden)
+		return
+	}
+
+	f, hdr, err := r.FormFile("file")
+	if err != nil {
+		var mbe *http.MaxBytesError
+		if errors.As(err, &mbe) {
+			http.Error(w, "file too large (max 25 MiB)", http.StatusRequestEntityTooLarge)
+			return
+		}
+		http.Error(w, "no file provided", http.StatusBadRequest)
+		return
+	}
+	defer f.Close()
+
+	// Content type is SERVER-decided from the extension against the allowlist,
+	// never the client's part header — an upload can't assert an active type.
+	ct, ok := uploadContentType(hdr.Filename)
+	if !ok {
+		http.Error(w, "unsupported file type — allowed: HTML, PDF, PNG, JPEG, GIF, WebP, SVG", http.StatusUnsupportedMediaType)
+		return
+	}
+
+	body, err := io.ReadAll(f)
+	if err != nil {
+		var mbe *http.MaxBytesError
+		if errors.As(err, &mbe) {
+			http.Error(w, "file too large (max 25 MiB)", http.StatusRequestEntityTooLarge)
+			return
+		}
+		http.Error(w, "unavailable", http.StatusInternalServerError)
+		return
+	}
+
+	title := strings.TrimSpace(r.FormValue("title"))
+	if title == "" {
+		title = hdr.Filename
+	}
+
+	slug := domain.NewSlug()
+	// HTML runs the render-parity pipeline (fail-soft); non-HTML is stored as-is.
+	bundled, storedCT, _, _ := render.Prepare(body, ct, render.Options{Egress: s.Egress})
+
+	if err := s.storeArtifact(who, slug, title, storedCT, bundled); err != nil {
+		http.Error(w, "unavailable", http.StatusInternalServerError)
+		return
+	}
+	// Full-page form POST → redirect the browser to the new artifact (PRG).
+	http.Redirect(w, r, "/a/"+slug, http.StatusSeeOther)
+}
+
+// storeArtifact persists a rendered artifact as a private v1 owned by who, then
+// audits PUBLISH. Shared by the CLI raw path and the browser upload path so both
+// converge on one storage + audit code path. On any store error it audits DENY
+// and returns the error for the caller to surface as a 500.
+func (s *Server) storeArtifact(who *artifactav1.Identity, slug, title, ct string, bundled []byte) error {
+	const firstVersion = 1
+	if err := s.Blob.Put(slug, firstVersion, bytes.NewReader(bundled)); err != nil {
+		s.audit(who, slug, artifactav1.AuditAction_AUDIT_ACTION_DENY, false)
+		return err
+	}
+	now := timestamppb.Now()
+	art := &artifactav1.Artifact{
+		Slug:          slug,
+		OwnerSub:      who.GetSub(),
+		Title:         title,
+		Visibility:    artifactav1.Visibility_VISIBILITY_PRIVATE, // private by default
+		ContentType:   ct,
+		CreatedAt:     now,
+		LatestVersion: firstVersion,
+	}
+	if err := s.Store.AddVersion(&artifactav1.ArtifactVersion{
+		Slug: slug, N: firstVersion, ContentType: ct, CreatedAt: now, CreatedBy: who.GetSub(),
+	}); err != nil {
+		s.audit(who, slug, artifactav1.AuditAction_AUDIT_ACTION_DENY, false)
+		return err
+	}
+	if err := s.Store.PutArtifact(art); err != nil {
+		s.audit(who, slug, artifactav1.AuditAction_AUDIT_ACTION_DENY, false)
+		return err
+	}
+	s.audit(who, slug, artifactav1.AuditAction_AUDIT_ACTION_PUBLISH, true)
+	return nil
+}
+
+// isMultipartForm reports whether the request body is a browser multipart form.
+func isMultipartForm(r *http.Request) bool {
+	return strings.HasPrefix(strings.ToLower(r.Header.Get("Content-Type")), "multipart/form-data")
+}
+
+// uploadContentType maps an uploaded filename to its canonical stored Content-Type
+// via the allowlist, or (,"",false) if the extension is not allowed.
+func uploadContentType(filename string) (string, bool) {
+	ct, ok := uploadAllowlist[strings.ToLower(filepath.Ext(filename))]
+	return ct, ok
+}
+
+// sameOrigin checks the browser POST's Origin/Referer against this deployment's
+// host as a CSRF backstop. A missing Origin AND Referer passes (the SameSite
+// session cookie is the primary defense); a present-but-mismatched one fails.
+func (s *Server) sameOrigin(r *http.Request) bool {
+	expected := hostOf(s.BaseURL)
+	if expected == "" {
+		expected = r.Host
+	}
+	if o := r.Header.Get("Origin"); o != "" {
+		return hostOf(o) == expected
+	}
+	if ref := r.Header.Get("Referer"); ref != "" {
+		return hostOf(ref) == expected
+	}
+	return true
+}
+
+func hostOf(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	return u.Host
 }
 
 // ownedArtifact resolves the artifact at slug for an owner-only mutation. It

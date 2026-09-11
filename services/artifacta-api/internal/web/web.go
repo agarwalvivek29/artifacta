@@ -49,6 +49,9 @@ type DashboardData struct {
 	Mine    []ArtifactView
 	Shared  []ArtifactView
 	Org     []ArtifactView
+	// UploadEnabled renders the "Upload an artifact" form when the operator has
+	// turned on ARTIFACTA_UPLOAD_UI (ADR-0024). Off = the form is absent.
+	UploadEnabled bool
 }
 
 // RenderDashboard writes the authenticated dashboard for data to w.

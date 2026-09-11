@@ -63,7 +63,8 @@ ArtifactA **diverges** from the template's JWT + shared-API-key default — see
 [ADR 0002](docs/adr/0002-auth-model.md). It uses a pluggable identity `Provider`
 (local now; OIDC + trusted-forward-auth later) and makes the **per-artifact** decision
 (`domain.CanView`) in the app. Identity is never client-asserted; grants bind to the
-immutable subject. Exempt paths: `GET /health`, `GET /metrics`, `GET /.well-known/artifacta-cli`
+immutable subject. Exempt paths: `GET /health`, `GET /metrics`, `GET /version` (deployed
+version + CLI-compat contract, ADR-0021), `GET /.well-known/artifacta-cli`
 (CLI login discovery — public issuer/client_id only). The CLI is a public client: `artifacta
 login <url>` self-configures from the discovery endpoint and holds an OIDC refresh token
 (`offline_access`) so sessions persist ([ADR-0020](docs/adr/0020-cli-public-client-and-refresh.md)).
@@ -91,3 +92,4 @@ login <url>` self-configures from the discovery endpoint and holds an OIDC refre
 | [0018](docs/adr/0018-anonymous-vpn-gated-visibility.md) | Anonymous, VPN-gated `LINK` visibility (the one `CanView` carve-out)                            | Accepted |
 | [0019](docs/adr/0019-invite-by-email-grants.md)         | Invite-by-email grants (email or subject; verified email matched in `CanView`)                  | Accepted |
 | [0020](docs/adr/0020-cli-public-client-and-refresh.md)  | CLI public-client login (discovery + PKCE) + refresh tokens; `/me`, `/artifacts` (extends 0007) | Accepted |
+| [0021](docs/adr/0021-cli-upgrade-version-check.md)      | CLI `upgrade` check + `GET /version` (deployed version + min-CLI/capabilities compat contract)  | Accepted |

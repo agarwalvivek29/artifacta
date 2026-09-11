@@ -85,6 +85,9 @@ type Server struct {
 	// handlers replace the dev cookie-setter and it is the request authenticator.
 	// When nil, the server uses the dev /login helper and the Local adapter.
 	OIDC *OIDCProvider
+	// Version is the deployed server's build version, exposed at GET /version so
+	// the CLI's `upgrade` command can check compatibility before advising a bump.
+	Version string
 }
 
 func (s *Server) Routes() http.Handler {
@@ -100,6 +103,9 @@ func (s *Server) Routes() http.Handler {
 	// it resolves on the apex host before any subdomain rewrite. Exposes only
 	// public values (issuer, client_id, scopes); never the client secret.
 	mux.HandleFunc("GET /.well-known/artifacta-cli", s.cliLoginConfig)
+	// Deployed version + compatibility (exempt, unauthenticated): lets the CLI's
+	// `upgrade` command decide whether a newer CLI is compatible with this server.
+	mux.HandleFunc("GET /version", s.version)
 
 	// Root (FR18, FR19): the dashboard when signed in, else the sign-in landing.
 	// {$} matches only the exact "/" path, so it never shadows the routes below.
@@ -518,6 +524,30 @@ func (s *Server) cliLoginConfig(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 	_ = json.NewEncoder(w).Encode(s.OIDC.CLILoginConfig())
+}
+
+// minCLIVersion is the oldest CLI this server accepts; serverCapabilities are the
+// feature flags it advertises. Both are surfaced at GET /version so a CLI can
+// reason about compatibility (version floor + capability presence).
+const minCLIVersion = "0.0.1"
+
+var serverCapabilities = []string{"cli-login", "refresh-tokens", "artifact-list"}
+
+// version backs GET /version (unauthenticated): the deployed build version plus
+// the compatibility contract (oldest supported CLI + capability flags). The CLI's
+// `upgrade` command reads this to decide whether a newer CLI is compatible before
+// advising the user to upgrade.
+func (s *Server) version(w http.ResponseWriter, _ *http.Request) {
+	ver := s.Version
+	if ver == "" {
+		ver = "dev"
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"version":         ver,
+		"min_cli_version": minCLIVersion,
+		"capabilities":    serverCapabilities,
+	})
 }
 
 // me backs GET /me: the authenticated caller's identity, or 401. It is the auth

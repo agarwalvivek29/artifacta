@@ -142,13 +142,13 @@ func TestDashboardUploadFormToggle(t *testing.T) {
 
 	on := newTestServer(t, t.TempDir(), fakeAuth{id: caller, ok: true})
 	on.UploadUI = true
-	if body := get(on); !strings.Contains(body, marker) || !strings.Contains(body, "Upload an artifact") {
-		t.Fatalf("upload form missing with toggle on")
+	if body := get(on); !strings.Contains(body, marker) || !strings.Contains(body, `id="uploadFab"`) || !strings.Contains(body, "Upload an artifact") {
+		t.Fatalf("upload FAB/dialog missing with toggle on")
 	}
 
 	off := newTestServer(t, t.TempDir(), fakeAuth{id: caller, ok: true})
-	if body := get(off); strings.Contains(body, marker) {
-		t.Fatalf("upload form rendered with toggle off")
+	if body := get(off); strings.Contains(body, marker) || strings.Contains(body, `id="uploadFab"`) {
+		t.Fatalf("upload FAB/dialog rendered with toggle off")
 	}
 
 	anon := newTestServer(t, t.TempDir(), fakeAuth{ok: false})

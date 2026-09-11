@@ -20,7 +20,7 @@ render-egress ADR shipped in v0.0.9, so the upload decision is recorded here as 
 
 ## Decision
 
-1. **Content-negotiated `POST /artifacts` — no new route, no client JS.** The existing publish
+1. **Content-negotiated `POST /artifacts` — no new route; a native form submit.** The existing publish
    handler detects `multipart/form-data` (the browser form) versus a raw body (the CLI, unchanged).
    Both converge on one shared `storeArtifact` path: private-by-default v1, versioned (ADR-0013),
    `PUBLISH`-audited. HTML runs the same `render.Prepare` pipeline (ADR-0023) as any publish; the

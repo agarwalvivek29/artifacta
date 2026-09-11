@@ -199,18 +199,29 @@
     .share-md .done{background:var(--accent);color:var(--on-accent);border:1px solid transparent;border-radius:10px;padding:9px 20px;font:inherit;font-size:14px;font-weight:600;cursor:pointer}
     .share-md .done:hover{background:var(--accent-hover)}
     @media (prefers-reduced-motion:reduce){.share-md *{transition:none!important}}
-    /* Upload form (ADR-0024), gated by ARTIFACTA_UPLOAD_UI */
-    .upload{margin:6px 0 30px;padding:18px 20px;border:1px solid var(--line);border-radius:14px;background:var(--surface)}
-    .upload h2{margin:0 0 4px;font-size:15px}
-    .upload .hint{margin:0 0 14px;font-size:12.5px;color:var(--muted)}
-    .upload form{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
-    .upload input[type=file]{flex:1 1 260px;min-width:0;font:inherit;font-size:13px;color:var(--muted);
-      padding:8px;border:1px dashed var(--line);border-radius:10px;background:var(--surface-2)}
-    .upload input[type=text]{flex:1 1 180px;min-width:0;font:inherit;font-size:14px;padding:9px 12px;
+    /* Upload FAB + dialog (ADR-0024), gated by ARTIFACTA_UPLOAD_UI */
+    .fab{position:fixed;right:24px;bottom:24px;z-index:35;display:inline-flex;align-items:center;gap:9px;
+      background:var(--accent);color:var(--on-accent);border:1px solid transparent;border-radius:999px;
+      padding:13px 20px 13px 17px;font:inherit;font-size:14px;font-weight:600;cursor:pointer;
+      box-shadow:0 8px 24px color-mix(in srgb,var(--accent) 40%,transparent);transition:background .15s,transform .1s}
+    .fab:hover{background:var(--accent-hover)}
+    .fab:active{transform:translateY(1px)}
+    .fab svg{width:18px;height:18px}
+    /* Upload dialog reuses the share overlay/card + header/footer chrome */
+    .up-file{width:100%;text-align:left;display:flex;align-items:center;gap:12px;padding:16px;border-radius:12px;
+      border:1.5px dashed var(--line);background:var(--surface-2);color:var(--muted);font:inherit;font-size:14px;cursor:pointer;transition:border-color .15s,color .15s}
+    .up-file:hover{border-color:var(--accent);color:var(--ink)}
+    .up-file.has{border-style:solid;border-color:var(--accent);color:var(--ink)}
+    .up-file .ico{flex:none;width:34px;height:34px;border-radius:9px;display:grid;place-items:center;background:var(--surface);border:1px solid var(--line)}
+    .up-file .ico svg{width:18px;height:18px}
+    .up-file .fn{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .up-title{width:100%;box-sizing:border-box;margin-top:14px;font:inherit;font-size:14px;padding:11px 13px;
       border:1px solid var(--line);border-radius:10px;background:var(--surface-2);color:var(--ink)}
-    .upload button{flex:none;background:var(--accent);color:var(--on-accent);border:1px solid transparent;
-      border-radius:10px;padding:10px 22px;font:inherit;font-size:14px;font-weight:600;cursor:pointer}
-    .upload button:hover{background:var(--accent-hover)}
+    .up-title::placeholder{color:var(--muted)}
+    .up-submit{background:var(--accent);color:var(--on-accent);border:1px solid transparent;border-radius:10px;
+      padding:9px 22px;font:inherit;font-size:14px;font-weight:600;cursor:pointer}
+    .up-submit:hover{background:var(--accent-hover)}
+    .up-submit:disabled{opacity:.45;cursor:not-allowed}
   </style>
 </head>
 <body>
@@ -263,19 +274,6 @@
         </div>
         {{end}}
       </div>
-    {{end}}
-
-    {{if .UploadEnabled}}
-    <div class="upload">
-      <h2>Upload an artifact</h2>
-      <p class="hint">HTML, PDF, or an image (PNG, JPEG, GIF, WebP, SVG), up to 25&nbsp;MiB. Private by default — you control who sees it.</p>
-      <form method="POST" action="/artifacts" enctype="multipart/form-data">
-        <input type="file" name="file"
-               accept=".html,.htm,.pdf,.png,.jpg,.jpeg,.gif,.webp,.svg,text/html,application/pdf,image/png,image/jpeg,image/gif,image/webp,image/svg+xml" required>
-        <input type="text" name="title" placeholder="Title (optional)" maxlength="200">
-        <button type="submit">Upload</button>
-      </form>
-    </div>
     {{end}}
 
     <div class="section">
@@ -354,6 +352,33 @@
       <div class="mf"><span class="msm">Changes save instantly</span><button class="done" id="shDone" type="button">Done</button></div>
     </div>
   </div>
+
+  {{if .UploadEnabled}}
+  <button class="fab" id="uploadFab" type="button" aria-haspopup="dialog" aria-controls="uploadOv" aria-label="Upload an artifact">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+    Upload
+  </button>
+  <div class="share-ov" id="uploadOv" role="dialog" aria-modal="true" aria-labelledby="upTitle">
+    <div class="share-md">
+      <form id="upForm" method="POST" action="/artifacts" enctype="multipart/form-data">
+        <div class="mh">
+          <div class="t"><div class="eyebrow">Upload</div><h3 id="upTitle">Upload an artifact</h3></div>
+          <button class="x" id="upClose" type="button" aria-label="Close">&times;</button>
+        </div>
+        <div class="mb">
+          <input type="file" name="file" id="upFile" hidden required
+                 accept=".html,.htm,.pdf,.png,.jpg,.jpeg,.gif,.webp,.svg,text/html,application/pdf,image/png,image/jpeg,image/gif,image/webp,image/svg+xml">
+          <button type="button" class="up-file" id="upPick">
+            <span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M8 8l4-4 4 4"/><path d="M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg></span>
+            <span class="fn" id="upName">Choose a file…</span>
+          </button>
+          <input type="text" name="title" class="up-title" id="upTitleInput" placeholder="Title (optional)" maxlength="200" autocomplete="off">
+        </div>
+        <div class="mf"><span class="msm">HTML, PDF, or an image · up to 25&nbsp;MiB · private by default</span><button class="up-submit" id="upSubmit" type="submit" disabled>Upload</button></div>
+      </form>
+    </div>
+  </div>
+  {{end}}
 
   <div class="toast" id="toast">Link copied</div>
   <script>
@@ -524,6 +549,27 @@
     el('shDone').addEventListener('click', closeShare);
     shOv.addEventListener('click', e => { if(e.target === shOv) closeShare(); });
     document.addEventListener('keydown', e => { if(e.key === 'Escape') closeShare(); });
+
+    // Upload dialog (ADR-0024) — wired only when the toggle rendered the FAB.
+    // The form submits natively (multipart POST → 303 redirect); JS only opens
+    // the dialog, drives the file picker, and gates the submit until a file is
+    // chosen — no fetch, so the dashboard needs no CSP change.
+    const upFab = el('uploadFab');
+    if (upFab) {
+      const upOv = el('uploadOv'), upFile = el('upFile'), upSubmit = el('upSubmit');
+      const closeUp = () => upOv.classList.remove('open');
+      upFab.addEventListener('click', () => { upOv.classList.add('open'); upFile.focus(); });
+      el('upPick').addEventListener('click', () => upFile.click());
+      upFile.addEventListener('change', () => {
+        const f = upFile.files && upFile.files[0];
+        el('upName').textContent = f ? f.name : 'Choose a file…';
+        el('upPick').classList.toggle('has', !!f);
+        upSubmit.disabled = !f;
+      });
+      el('upClose').addEventListener('click', closeUp);
+      upOv.addEventListener('click', e => { if (e.target === upOv) closeUp(); });
+      document.addEventListener('keydown', e => { if (e.key === 'Escape') closeUp(); });
+    }
   </script>
 </body>
 </html>

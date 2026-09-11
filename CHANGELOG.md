@@ -2,6 +2,24 @@
 
 All notable changes to ArtifactA are documented here. Versions follow [SemVer](https://semver.org).
 
+## 0.0.10 — 2026-09-11
+
+### Added
+
+- **Upload an artifact from the browser** (ADR-0024, spec 5), behind `ARTIFACTA_UPLOAD_UI` (default
+  off). A signed-in user can pick a file — HTML, PDF, or an image (PNG/JPEG/GIF/WebP/SVG), up to
+  25 MiB — from a dashboard form and host it as an ordinary private-by-default, versioned artifact.
+  It content-negotiates the existing `POST /artifacts` (multipart for the browser, raw body for the
+  CLI — unchanged), decides the content type server-side against an allowlist (never the client's
+  header), runs HTML through the same `render.Prepare` pipeline, and serves it through the same
+  `CanView`-gated, sandboxed path. A same-origin check backstops the SameSite session cookie against
+  CSRF. Off by default keeps the surface dark until an operator opts in.
+
+### Docs
+
+- Roadmap spec for **multi-file artifacts** (entry document + sibling assets) — the next hosting
+  capability, scoped as its own multi-week initiative (storage + schema + srcdoc-viewer rework).
+
 ## 0.0.9 — 2026-09-11
 
 ### Added

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -241,6 +242,113 @@ func meRemote(baseURL, token string) (sub, email string, err error) {
 		return "", "", err
 	}
 	return out.Sub, out.Email, nil
+}
+
+// looksLikeEmail reports whether s should be sent as an invite-by-email grant
+// rather than a subject. Deliberately permissive — a single '@' with a dot in
+// the domain part — mirroring the server's api.validEmail; the server re-validates,
+// so this only picks the request shape ({"email"} vs {"grantee_sub"}).
+func looksLikeEmail(s string) bool {
+	at := strings.IndexByte(s, '@')
+	if at <= 0 || at != strings.LastIndexByte(s, '@') || at == len(s)-1 {
+		return false
+	}
+	if strings.ContainsAny(s, " \t\r\n") {
+		return false
+	}
+	return strings.Contains(s[at+1:], ".")
+}
+
+// removeGrantRemote DELETEs a grant at <baseURL>/artifacts/<slug>/grants/<grantee>
+// with `Authorization: Bearer <token>`. grantee is a subject or an email; both
+// path segments are escaped so an email's '@' stays within one segment (the
+// server url.PathUnescape-es it back). Unit-testable against an httptest.Server.
+func removeGrantRemote(baseURL, token, slug, grantee string) error {
+	endpoint := remoteURL(baseURL, "/artifacts/"+url.PathEscape(slug)+"/grants/"+url.PathEscape(grantee))
+	if err := doRemote(http.MethodDelete, endpoint, token, "", nil, http.StatusOK, nil); err != nil {
+		return fmt.Errorf("unshare failed: %w", err)
+	}
+	return nil
+}
+
+// setLabelRemote PATCHes <baseURL>/artifacts/<slug>/label to claim a custom
+// subdomain label, returning the server's subdomain_url (which is "" when the
+// deployment has no RootDomain configured). Unit-testable against an httptest.Server.
+func setLabelRemote(baseURL, token, slug, label string) (string, error) {
+	endpoint := remoteURL(baseURL, "/artifacts/"+url.PathEscape(slug)+"/label")
+	body, err := json.Marshal(map[string]string{"label": label})
+	if err != nil {
+		return "", err
+	}
+	var out struct {
+		Slug         string `json:"slug"`
+		Label        string `json:"label"`
+		SubdomainURL string `json:"subdomain_url"`
+	}
+	if err := doRemote(http.MethodPatch, endpoint, token, "application/json", bytes.NewReader(body), http.StatusOK, &out); err != nil {
+		return "", fmt.Errorf("label failed: %w", err)
+	}
+	return out.SubdomainURL, nil
+}
+
+// commentRow is one row of the GET /artifacts/<slug>/comments listing. Its JSON
+// tags mirror api.commentView (which is unexported, so it can't be imported):
+// id, version, author_email, created_at, body, resolved, parent_id.
+type commentRow struct {
+	ID          string `json:"id"`
+	Version     int    `json:"version"`
+	AuthorEmail string `json:"author_email"`
+	CreatedAt   string `json:"created_at"`
+	Body        string `json:"body"`
+	Resolved    bool   `json:"resolved"`
+	ParentID    string `json:"parent_id"`
+	Anchor      *struct {
+		Quote string `json:"quote"`
+	} `json:"anchor"`
+}
+
+// addCommentRemote POSTs a comment to <baseURL>/artifacts/<slug>/comments with
+// `Authorization: Bearer <token>` and returns the new comment's id. A non-empty
+// parentID posts a reply within that thread (ADR-0016). Unit-testable against an
+// httptest.Server.
+func addCommentRemote(baseURL, token, slug, body, parentID string) (string, error) {
+	endpoint := remoteURL(baseURL, "/artifacts/"+url.PathEscape(slug)+"/comments")
+	payload := map[string]string{"body": body}
+	if parentID != "" {
+		payload["parent_id"] = parentID
+	}
+	b, err := json.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
+	var out commentRow
+	if err := doRemote(http.MethodPost, endpoint, token, "application/json", bytes.NewReader(b), http.StatusCreated, &out); err != nil {
+		return "", fmt.Errorf("comment add failed: %w", err)
+	}
+	return out.ID, nil
+}
+
+// listCommentsRemote GETs an artifact's comments (any authorized viewer). The
+// server returns a flat list including replies (parent_id set), anchored, and
+// resolved comments. Unit-testable against an httptest.Server.
+func listCommentsRemote(baseURL, token, slug string) ([]commentRow, error) {
+	var rows []commentRow
+	endpoint := remoteURL(baseURL, "/artifacts/"+url.PathEscape(slug)+"/comments")
+	if err := doRemote(http.MethodGet, endpoint, token, "", nil, http.StatusOK, &rows); err != nil {
+		return nil, fmt.Errorf("comment ls failed: %w", err)
+	}
+	return rows, nil
+}
+
+// resolveCommentRemote POSTs to <baseURL>/artifacts/<slug>/comments/<id>/resolve
+// with `Authorization: Bearer <token>` (owner-only, enforced server-side).
+// Unit-testable against an httptest.Server.
+func resolveCommentRemote(baseURL, token, slug, id string) error {
+	endpoint := remoteURL(baseURL, "/artifacts/"+url.PathEscape(slug)+"/comments/"+url.PathEscape(id)+"/resolve")
+	if err := doRemote(http.MethodPost, endpoint, token, "", nil, http.StatusOK, nil); err != nil {
+		return fmt.Errorf("comment resolve failed: %w", err)
+	}
+	return nil
 }
 
 // artifactRow is one row of the GET /artifacts listing (remote `ls`).

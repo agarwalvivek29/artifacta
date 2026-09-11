@@ -14,9 +14,17 @@ import (
 const (
 	// releasesAPI is the GitHub latest-release endpoint for the CLI.
 	releasesAPI = "https://api.github.com/repos/agarwalvivek29/artifacta/releases/latest"
-	// installCmd is the canonical one-liner that installs/upgrades the CLI.
+	// installCmd is the canonical one-liner that installs/upgrades the CLI (latest).
 	installCmd = "curl -fsSL https://raw.githubusercontent.com/agarwalvivek29/artifacta/main/install.sh | sh"
+	// installBase is the install-script URL, used to build version-pinned commands.
+	installBase = "https://raw.githubusercontent.com/agarwalvivek29/artifacta/main/install.sh"
 )
+
+// pinnedInstall returns the install one-liner pinned to an exact version, so the
+// user can install the version their deployment runs (upgrade or downgrade).
+func pinnedInstall(ver string) string {
+	return fmt.Sprintf("curl -fsSL %s | ARTIFACTA_VERSION=%s sh", installBase, ver)
+}
 
 // latestRelease fetches the latest CLI release from GitHub, returning its version
 // (tag without a leading "v") and the minimum server version it requires (parsed
@@ -136,33 +144,58 @@ func decideUpgrade(current, latest, minServer, serverVer string, haveServer bool
 		fmt.Sprintf("\nit needs a deployed server >= %s, but your deployment is %s.\nupgrade the server first, then upgrade the CLI.", minServer, serverVer)}
 }
 
-// upgrade checks GitHub for a newer CLI and advises whether to upgrade, taking the
-// deployed server's version into account when the new release depends on it. It
-// only advises — it never self-updates the binary.
+// decideMatch is the deployment-anchored decision: the safest CLI to run against a
+// deployment is the CLI of the same version (server + CLI ship from one binary per
+// release). It recommends installing the deployment's exact version — upgrading OR
+// downgrading — so a user on the latest CLI whose deployment is older is told to
+// match it, and no new development strands users on an incompatible CLI.
+func decideMatch(current, serverVer string) upgradeAdvice {
+	if current != "dev" && cmpVersion(current, serverVer) == 0 {
+		return upgradeAdvice{message: fmt.Sprintf("artifacta %s matches your deployment — compatible.", current)}
+	}
+	if current == "dev" {
+		return upgradeAdvice{message: fmt.Sprintf(
+			"you are on a dev build; your deployment runs %s. install the matching release:\n  %s",
+			serverVer, pinnedInstall(serverVer))}
+	}
+	if cmpVersion(current, serverVer) < 0 {
+		return upgradeAdvice{message: fmt.Sprintf(
+			"your CLI (%s) is older than your deployment (%s). install the matching version:\n  %s",
+			current, serverVer, pinnedInstall(serverVer))}
+	}
+	// CLI newer than the deployment → downgrade to match (or upgrade the server).
+	return upgradeAdvice{blockedByServer: true, message: fmt.Sprintf(
+		"your CLI (%s) is newer than your deployment (%s).\nfor guaranteed compatibility, install the deployment's version (downgrade):\n  %s\nor upgrade the deployment to %s.",
+		current, serverVer, pinnedInstall(serverVer), current)}
+}
+
+// upgrade advises whether to change the installed CLI. When the CLI is logged in
+// to a deployment, the deployment's version is the anchor (match it, up or down).
+// Otherwise it falls back to checking GitHub for a newer release and reasoning
+// about server-version dependencies. It only advises — it never self-updates.
 func upgrade() error {
 	c, err := config.Load()
 	if err != nil {
 		return err
 	}
+
+	// Deployment-anchored path: match the version the deployment actually runs.
+	if remoteTarget(c) {
+		serverVer, _, _, verr := serverVersion(c.BaseURL)
+		if verr != nil {
+			fmt.Printf("(could not read the deployed version from %s: %v)\n", c.BaseURL, verr)
+		} else {
+			fmt.Println(decideMatch(Version, serverVer).message)
+			return nil
+		}
+	}
+
+	// Not logged in (or the server was unreachable): check GitHub for a newer CLI
+	// and reason about whether it needs a newer server.
 	latest, minServer, err := latestRelease()
 	if err != nil {
 		return err
 	}
-
-	serverVer := ""
-	haveServer := false
-	// Only bother reading the deployed version when the new release depends on it
-	// and we're actually logged in to a deployment.
-	if minServer != "" && remoteTarget(c) {
-		sv, _, _, verr := serverVersion(c.BaseURL)
-		if verr != nil {
-			fmt.Printf("(could not read the deployed version from %s: %v)\n", c.BaseURL, verr)
-		} else {
-			serverVer, haveServer = sv, true
-		}
-	}
-
-	adv := decideUpgrade(Version, latest, minServer, serverVer, haveServer)
-	fmt.Println(adv.message)
+	fmt.Println(decideUpgrade(Version, latest, minServer, "", false).message)
 	return nil
 }

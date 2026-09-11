@@ -292,6 +292,9 @@ func loginOIDC(c config.Config) error {
 	} else {
 		fmt.Printf("logged in as %s\n", c.Email)
 	}
+	// Surface a CLI/deployment version mismatch now (advice only) so the user can
+	// install the matching version rather than hitting surprises later.
+	noteVersionMismatch(c.BaseURL)
 	return nil
 }
 
@@ -768,6 +771,17 @@ func doctor() error {
 		return err
 	}
 	fmt.Printf("  ✓ auth: %s <%s>\n", sub, email)
+
+	// Version compatibility: matched is a ✓; a mismatch prints the exact command
+	// to install the deployment's version (advice only — doctor never changes it).
+	if sv, _, _, verr := serverVersion(c.BaseURL); verr == nil {
+		if Version != "dev" && cmpVersion(Version, sv) == 0 {
+			fmt.Printf("  ✓ version: cli %s matches deployment\n", Version)
+		} else {
+			fmt.Printf("  ! version: cli %s vs deployment %s\n", Version, sv)
+			fmt.Println(decideMatch(Version, sv).message)
+		}
+	}
 	fmt.Println("all checks passed")
 	return nil
 }

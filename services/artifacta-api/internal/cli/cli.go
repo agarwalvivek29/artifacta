@@ -31,6 +31,7 @@ import (
 	"github.com/agarwalvivek29/here.now/services/artifacta-api/internal/infra"
 	"github.com/coreos/go-oidc/v3/oidc"
 	"golang.org/x/oauth2"
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -65,8 +66,10 @@ Usage:
                             resolve a comment thread (owner only)
   artifacta ls                list your artifacts
   artifacta serve             run the viewer server
-  artifacta healthcheck       probe a running server's /health (exit 0 = healthy)
-  artifacta audit verify      verify the audit-log hash chain
+  artifacta healthcheck [url] probe a server's /health (exit 0 = healthy); defaults to the
+                              logged-in remote, else the local listen address
+  artifacta audit verify      verify the audit log: full hash chain locally, or your
+                              own rows client-side when logged in to a remote
   artifacta version           print the build version
 
 Docs: docs/PLAN.md is legacy; see docs/PRODUCT.md, docs/ARCHITECTURE.md
@@ -105,7 +108,7 @@ func Run(args []string) error {
 	case "serve":
 		return serve()
 	case "healthcheck":
-		return healthcheck()
+		return healthcheck(args[1:])
 	case "audit":
 		return audit(args[1:])
 	case "version", "--version", "-v":
@@ -649,8 +652,12 @@ func visibility(args []string) error {
 	slug, level := args[0], args[1]
 	switch level {
 	case "private", "invited", "org", "link":
+	case "public":
+		// "public" is an accepted alias for the no-login, VPN-gated "link" level.
+		// Normalize to the canonical name so output and the server agree.
+		level = "link"
 	default:
-		return fmt.Errorf("invalid visibility %q (want private, invited, org, or link)", level)
+		return fmt.Errorf("invalid visibility %q (want private, invited, org, or link; \"public\" is an alias for link)", level)
 	}
 	c, err := config.Load()
 	if err != nil {
@@ -978,12 +985,32 @@ func audit(args []string) error {
 	if err != nil {
 		return err
 	}
-	// The audit chain lives in the server's own store; the CLI can only verify a
-	// local store. Pointed at a deployment, say so instead of verifying an empty
-	// or unrelated local log.
+
+	// Remote: fetch the caller's OWN audit rows from the server and verify each
+	// row's hash client-side (GET /audit is owner-scoped — a caller never sees the
+	// instance-wide trail). This proves none of the returned rows were tampered
+	// with. It does NOT prove the full chain has no gaps between them; that
+	// continuity check needs the complete log, so run `audit verify` on the server
+	// host for the whole-chain guarantee.
 	if remoteTarget(c) {
-		return fmt.Errorf("audit verify runs against a local store; run it on the server host (this CLI is logged in to %s)", c.BaseURL)
+		token, err := freshToken(&c)
+		if err != nil {
+			return err
+		}
+		events, err := fetchAuditEvents(c.BaseURL, token)
+		if err != nil {
+			return err
+		}
+		n, err := infra.VerifyRowHashes(events)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("audit OK: %d of your own rows verified (per-row integrity) on %s\n", n, c.BaseURL)
+		fmt.Println("note: this covers your own rows only; run `audit verify` on the server host for full-chain continuity.")
+		return nil
 	}
+
+	// Local store: verify the complete hash chain.
 	st, _, err := open(c)
 	if err != nil {
 		return err
@@ -998,6 +1025,25 @@ func audit(args []string) error {
 	}
 	fmt.Printf("audit chain OK (%d events)\n", n)
 	return nil
+}
+
+// fetchAuditEvents GETs the caller's own audit rows (owner-scoped) from the
+// server and decodes each stored protojson row back into an AuditEvent, so the
+// hash recomputation client-side matches the server's exactly.
+func fetchAuditEvents(baseURL, token string) ([]*artifactav1.AuditEvent, error) {
+	var raw []json.RawMessage
+	if err := doRemote(http.MethodGet, remoteURL(baseURL, "/audit"), token, "", nil, http.StatusOK, &raw); err != nil {
+		return nil, err
+	}
+	events := make([]*artifactav1.AuditEvent, 0, len(raw))
+	for _, r := range raw {
+		ev := &artifactav1.AuditEvent{}
+		if err := protojson.Unmarshal(r, ev); err != nil {
+			return nil, fmt.Errorf("decode audit event: %w", err)
+		}
+		events = append(events, ev)
+	}
+	return events, nil
 }
 
 // doctor checks that the CLI can reach the configured server and that its stored
@@ -1162,26 +1208,46 @@ func serve() error {
 	}
 }
 
-// healthcheck is the container-native liveness probe: it GETs /health on the
-// configured (or ARTIFACTA_ADDR) address and exits 0 on 200, non-zero otherwise.
-// The prod image is distroless (no shell/curl), so the compose/orchestrator
-// healthcheck invokes this subcommand instead.
-func healthcheck() error {
+// healthcheck probes a server's /health and exits 0 on 200, non-zero otherwise.
+// It resolves the target in priority order so both use cases work:
+//
+//   - `artifacta healthcheck <url>` — probe an explicit server URL.
+//   - logged into / pointed at a remote (remoteTarget) — probe that base URL, so
+//     a remote user gets a real answer instead of a bogus loopback "connection
+//     refused" (the base URL is where their artifacts actually live).
+//   - otherwise — the container-native liveness probe: dial the local listen
+//     address as loopback. The prod image is distroless (no shell/curl), so the
+//     compose/orchestrator healthcheck invokes this subcommand in-container.
+func healthcheck(args []string) error {
 	c, err := config.Load()
 	if err != nil {
 		return err
 	}
-	addr := c.Addr
-	// Turn a bare listen address (":8080") into a loopback URL to dial.
-	host, port, splitErr := net.SplitHostPort(strings.TrimSpace(addr))
-	if splitErr != nil {
-		return fmt.Errorf("invalid address %q: %w", addr, splitErr)
+
+	var target string
+	switch {
+	case len(args) > 0 && strings.TrimSpace(args[0]) != "":
+		arg := strings.TrimSpace(args[0])
+		if !strings.Contains(arg, "://") {
+			arg = "http://" + arg // accept a bare host:port like the container-probe path
+		}
+		target = remoteURL(arg, "/health")
+	case remoteTarget(c):
+		target = remoteURL(c.BaseURL, "/health")
+	default:
+		// Turn a bare listen address (":8080") into a loopback URL to dial.
+		host, port, splitErr := net.SplitHostPort(strings.TrimSpace(c.Addr))
+		if splitErr != nil {
+			return fmt.Errorf("invalid address %q: %w", c.Addr, splitErr)
+		}
+		if host == "" || host == "0.0.0.0" || host == "::" {
+			host = "127.0.0.1"
+		}
+		target = fmt.Sprintf("http://%s/health", net.JoinHostPort(host, port))
 	}
-	if host == "" || host == "0.0.0.0" || host == "::" {
-		host = "127.0.0.1"
-	}
+
 	client := &http.Client{Timeout: 5 * time.Second}
-	resp, err := client.Get(fmt.Sprintf("http://%s/health", net.JoinHostPort(host, port)))
+	resp, err := client.Get(target)
 	if err != nil {
 		return fmt.Errorf("healthcheck: %w", err)
 	}

@@ -41,6 +41,7 @@ Usage:
   artifacta login [<url>]     log in to a server; <url> auto-configures everything
   artifacta doctor            check server connectivity + authentication
   artifacta whoami            print the authenticated identity
+  artifacta upgrade           check for a newer CLI (and server compatibility)
   artifacta publish <file>    publish a new artifact, print its link
   artifacta publish --update <slug> <file>
                             append a new version to an existing artifact
@@ -67,6 +68,8 @@ func Run(args []string) error {
 		return doctor()
 	case "whoami":
 		return whoami()
+	case "upgrade", "--upgrade":
+		return upgrade()
 	case "publish":
 		return publish(args[1:])
 	case "versions":
@@ -799,7 +802,7 @@ func serve() error {
 	if err != nil {
 		return err
 	}
-	srv := &api.Server{Store: st, Blob: bl, BaseURL: c.BaseURL, RootDomain: c.RootDomain, OrgName: c.OrgName, LogoURL: c.LogoURL}
+	srv := &api.Server{Store: st, Blob: bl, BaseURL: c.BaseURL, RootDomain: c.RootDomain, OrgName: c.OrgName, LogoURL: c.LogoURL, Version: Version}
 	// Config-driven auth selection: OIDC browser SSO when configured (ADR-0007),
 	// otherwise the Local single-token adapter for zero-dependency/dev deploys.
 	if c.OIDCEnabled() {

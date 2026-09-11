@@ -151,6 +151,40 @@ func TestCLILoginConfigOIDCMode(t *testing.T) {
 	}
 }
 
+// TestVersionEndpoint: GET /version is unauthenticated and exposes the deployed
+// version + compatibility contract for the CLI's upgrade check.
+func TestVersionEndpoint(t *testing.T) {
+	srv := newTestServer(t, t.TempDir(), fakeAuth{ok: false}) // no auth needed
+	srv.Version = "1.2.3"
+
+	rr := httptest.NewRecorder()
+	srv.Routes().ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/version", nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET /version: got %d, want 200 (unauthenticated)", rr.Code)
+	}
+	var out struct {
+		Version      string   `json:"version"`
+		MinCLI       string   `json:"min_cli_version"`
+		Capabilities []string `json:"capabilities"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &out); err != nil {
+		t.Fatalf("decode /version: %v", err)
+	}
+	if out.Version != "1.2.3" || out.MinCLI == "" || len(out.Capabilities) == 0 {
+		t.Fatalf("/version = %+v, want the deployed version + a compatibility contract", out)
+	}
+}
+
+// A Server with no Version set still reports a value (dev), never empty.
+func TestVersionEndpointDefaultsToDev(t *testing.T) {
+	srv := newTestServer(t, t.TempDir(), fakeAuth{ok: false})
+	rr := httptest.NewRecorder()
+	srv.Routes().ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/version", nil))
+	if !strings.Contains(rr.Body.String(), `"version":"dev"`) {
+		t.Fatalf("unset version should default to dev: %s", rr.Body.String())
+	}
+}
+
 // CLILoginConfig is reachable via the provider directly too (unit-level).
 func TestCLILoginConfigAccessor(t *testing.T) {
 	idp := newMockIDP(t, "cid", "s", "e@x.co")

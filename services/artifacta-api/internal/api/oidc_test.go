@@ -126,7 +126,7 @@ func mustJSON(t *testing.T, v any) []byte {
 func newTestProvider(t *testing.T, idp *mockIDP) *OIDCProvider {
 	t.Helper()
 	p, err := NewOIDCProvider(context.Background(), idp.server.URL, idp.clientID,
-		"test-client-secret", "http://app.test/callback", "session-secret-for-tests", false)
+		"test-client-secret", "http://app.test/callback", "http://127.0.0.1:53682/callback", "session-secret-for-tests", false)
 	if err != nil {
 		t.Fatalf("NewOIDCProvider: %v", err)
 	}

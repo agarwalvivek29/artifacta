@@ -38,6 +38,9 @@ type OIDCProvider struct {
 	// issuer is the OIDC issuer URL, retained so the CLI discovery endpoint can
 	// hand it back to `artifacta login <url>` (the CLI re-discovers from it).
 	issuer string
+	// cliRedirectURI is the fixed loopback redirect URI the CLI must use (empty =
+	// the CLI picks an ephemeral port). Advertised via the discovery endpoint.
+	cliRedirectURI string
 	// secure marks auth cookies Secure so browsers only send them over HTTPS.
 	secure bool
 }
@@ -63,15 +66,20 @@ type CLIAuthConfig struct {
 	Issuer   string   `json:"issuer,omitempty"`
 	ClientID string   `json:"client_id,omitempty"`
 	Scopes   []string `json:"scopes,omitempty"`
+	// RedirectURI, when set, is the fixed loopback redirect URI the CLI must bind
+	// and send (e.g. http://127.0.0.1:53682/callback) so it matches what the
+	// operator registered in the IdP. Empty = the CLI uses an ephemeral port.
+	RedirectURI string `json:"redirect_uri,omitempty"`
 }
 
 // CLILoginConfig returns the OIDC discovery info the CLI needs to log in.
 func (p *OIDCProvider) CLILoginConfig() CLIAuthConfig {
 	return CLIAuthConfig{
-		Auth:     "oidc",
-		Issuer:   p.issuer,
-		ClientID: p.oauth.ClientID,
-		Scopes:   cliScopes,
+		Auth:        "oidc",
+		Issuer:      p.issuer,
+		ClientID:    p.oauth.ClientID,
+		Scopes:      cliScopes,
+		RedirectURI: p.cliRedirectURI,
 	}
 }
 
@@ -79,7 +87,7 @@ func (p *OIDCProvider) CLILoginConfig() CLIAuthConfig {
 // clientSecret and redirectURL come from config/env; sessionSecret keys the
 // signed session + flow cookies. secure controls the Secure cookie attribute
 // (true in real HTTPS deploys).
-func NewOIDCProvider(ctx context.Context, issuer, clientID, clientSecret, redirectURL, sessionSecret string, secure bool) (*OIDCProvider, error) {
+func NewOIDCProvider(ctx context.Context, issuer, clientID, clientSecret, redirectURL, cliRedirectURI, sessionSecret string, secure bool) (*OIDCProvider, error) {
 	provider, err := oidc.NewProvider(ctx, issuer)
 	if err != nil {
 		return nil, err
@@ -92,10 +100,11 @@ func NewOIDCProvider(ctx context.Context, issuer, clientID, clientSecret, redire
 			Endpoint:     provider.Endpoint(),
 			Scopes:       []string{oidc.ScopeOpenID, "email", "profile"},
 		},
-		verifier: provider.Verifier(&oidc.Config{ClientID: clientID}),
-		sessions: NewSessions(sessionSecret),
-		issuer:   issuer,
-		secure:   secure,
+		verifier:       provider.Verifier(&oidc.Config{ClientID: clientID}),
+		sessions:       NewSessions(sessionSecret),
+		issuer:         issuer,
+		cliRedirectURI: cliRedirectURI,
+		secure:         secure,
 	}, nil
 }
 

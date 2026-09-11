@@ -143,6 +143,33 @@ func TestRemoteTargetAndLocalhost(t *testing.T) {
 	}
 }
 
+func TestLoopbackTarget(t *testing.T) {
+	ok := []struct {
+		uri, host, path string
+	}{
+		{"http://127.0.0.1:53682/callback", "127.0.0.1:53682", "/callback"},
+		{"http://localhost:8765/cb", "localhost:8765", "/cb"},
+		{"http://127.0.0.1:53682", "127.0.0.1:53682", "/callback"}, // path defaults
+	}
+	for _, tc := range ok {
+		h, p, err := loopbackTarget(tc.uri)
+		if err != nil || h != tc.host || p != tc.path {
+			t.Errorf("loopbackTarget(%q) = (%q,%q,%v), want (%q,%q,nil)", tc.uri, h, p, err, tc.host, tc.path)
+		}
+	}
+	bad := []string{
+		"https://127.0.0.1:53682/callback", // not http
+		"http://example.com:8765/cb",       // not loopback
+		"http://127.0.0.1/cb",              // no port
+		"://nope",                          // unparseable
+	}
+	for _, uri := range bad {
+		if _, _, err := loopbackTarget(uri); err == nil {
+			t.Errorf("loopbackTarget(%q) should have errored", uri)
+		}
+	}
+}
+
 func TestTokenExpired(t *testing.T) {
 	if !tokenExpired("") {
 		t.Error("empty expiry should be treated as expired")

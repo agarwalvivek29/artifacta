@@ -140,6 +140,11 @@ func TestCLILoginConfigOIDCMode(t *testing.T) {
 	if cfg.Auth != "oidc" || cfg.Issuer != idp.server.URL || cfg.ClientID != "test-client" {
 		t.Fatalf("discovery = %+v, want oidc/issuer/client-id from the provider", cfg)
 	}
+	// The fixed CLI redirect URI (set by newTestProvider) is advertised so the CLI
+	// binds the exact port the IdP registered.
+	if cfg.RedirectURI != "http://127.0.0.1:53682/callback" {
+		t.Fatalf("discovery redirect_uri = %q, want the provider's fixed loopback URI", cfg.RedirectURI)
+	}
 	hasOffline := false
 	for _, s := range cfg.Scopes {
 		if s == "offline_access" {

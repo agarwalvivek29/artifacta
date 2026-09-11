@@ -172,7 +172,8 @@ func login(args []string) error {
 			}
 			c.OIDCIssuer = disc.Issuer
 			c.OIDCClientID = disc.ClientID
-			c.OIDCClientSecret = "" // public client: PKCE only, never a secret
+			c.OIDCClientSecret = ""                 // public client: PKCE only, never a secret
+			c.OIDCCLIRedirectURI = disc.RedirectURI // fixed loopback URI the IdP registered (if any)
 			return loginOIDC(c)
 		case "local", "":
 			fmt.Printf("server %s uses local dev auth (no OIDC).\n", c.BaseURL)
@@ -219,15 +220,33 @@ func loginOIDC(c config.Config) error {
 	}
 	verifier := provider.Verifier(&oidc.Config{ClientID: c.OIDCClientID})
 
-	// Bind an ephemeral loopback port; the bound address is the redirect URI.
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	// Determine the loopback redirect URI. When the server advertises a fixed one
+	// (c.OIDCCLIRedirectURI), bind that exact host:port so the redirect_uri matches
+	// what the operator registered in the IdP (Okta and others match exactly).
+	// Otherwise fall back to an ephemeral port (works only where the IdP allows any
+	// loopback port).
+	bindAddr, callbackPath, redirectURL := "127.0.0.1:0", "/callback", ""
+	if c.OIDCCLIRedirectURI != "" {
+		hp, path, err := loopbackTarget(c.OIDCCLIRedirectURI)
+		if err != nil {
+			return err
+		}
+		bindAddr, callbackPath, redirectURL = hp, path, c.OIDCCLIRedirectURI
+	}
+	ln, err := net.Listen("tcp", bindAddr)
 	if err != nil {
+		if c.OIDCCLIRedirectURI != "" {
+			return fmt.Errorf("cannot bind %s for the login callback — is the port free? (%w)", bindAddr, err)
+		}
 		return fmt.Errorf("bind loopback: %w", err)
+	}
+	if redirectURL == "" { // ephemeral-port fallback: the bound address is the URI
+		redirectURL = fmt.Sprintf("http://%s%s", ln.Addr().String(), callbackPath)
 	}
 	oauthCfg := &oauth2.Config{
 		ClientID:     c.OIDCClientID,
 		ClientSecret: c.OIDCClientSecret, // empty for the public CLI client (PKCE only)
-		RedirectURL:  fmt.Sprintf("http://%s/callback", ln.Addr().String()),
+		RedirectURL:  redirectURL,
 		Endpoint:     provider.Endpoint(),
 		Scopes:       cliScopes, // includes offline_access → refresh token
 	}
@@ -250,7 +269,7 @@ func loginOIDC(c config.Config) error {
 	resCh := make(chan loginResult, 1)
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc(callbackPath, func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Get("state") != state {
 			http.Error(w, "bad state", http.StatusBadRequest)
 			resCh <- loginResult{err: fmt.Errorf("state mismatch on callback")}
@@ -851,7 +870,7 @@ func serve() error {
 		}
 		secure := strings.HasPrefix(strings.ToLower(c.BaseURL), "https://")
 		p, err := api.NewOIDCProvider(context.Background(),
-			c.OIDCIssuer, c.OIDCClientID, c.OIDCClientSecret, c.OIDCRedirectURL, c.SessionSecret, secure)
+			c.OIDCIssuer, c.OIDCClientID, c.OIDCClientSecret, c.OIDCRedirectURL, c.OIDCCLIRedirectURI, c.SessionSecret, secure)
 		if err != nil {
 			return fmt.Errorf("oidc setup: %w", err)
 		}

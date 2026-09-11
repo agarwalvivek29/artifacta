@@ -24,10 +24,38 @@ var cliScopes = []string{oidc.ScopeOpenID, "email", "profile", "offline_access"}
 // cliAuthConfig is the decoded body of GET /.well-known/artifacta-cli — the info
 // `artifacta login <url>` needs to bootstrap the loopback PKCE flow.
 type cliAuthConfig struct {
-	Auth     string   `json:"auth"` // "oidc" or "local"
-	Issuer   string   `json:"issuer"`
-	ClientID string   `json:"client_id"`
-	Scopes   []string `json:"scopes"`
+	Auth        string   `json:"auth"` // "oidc" or "local"
+	Issuer      string   `json:"issuer"`
+	ClientID    string   `json:"client_id"`
+	Scopes      []string `json:"scopes"`
+	RedirectURI string   `json:"redirect_uri"` // fixed loopback URI to bind, if the server sets one
+}
+
+// loopbackTarget splits a fixed loopback redirect URI into the host:port to bind
+// and the callback path, so `artifacta login` can bind the exact port the IdP has
+// registered. It requires an http loopback URI (127.0.0.1 / localhost / ::1);
+// anything else is rejected so we never bind a non-loopback address.
+func loopbackTarget(redirectURI string) (hostport, path string, err error) {
+	u, err := url.Parse(redirectURI)
+	if err != nil {
+		return "", "", fmt.Errorf("bad redirect uri %q: %w", redirectURI, err)
+	}
+	if u.Scheme != "http" {
+		return "", "", fmt.Errorf("redirect uri %q must be http loopback", redirectURI)
+	}
+	if u.Port() == "" {
+		return "", "", fmt.Errorf("redirect uri %q must include a port", redirectURI)
+	}
+	switch u.Hostname() {
+	case "127.0.0.1", "localhost", "::1":
+	default:
+		return "", "", fmt.Errorf("redirect uri %q must be a loopback host", redirectURI)
+	}
+	path = u.Path
+	if path == "" {
+		path = "/callback"
+	}
+	return u.Host, path, nil
 }
 
 // fetchCLIConfig GETs the discovery endpoint so login needs only the base URL.

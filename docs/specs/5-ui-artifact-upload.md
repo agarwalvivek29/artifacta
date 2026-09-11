@@ -219,7 +219,6 @@ dashboard passes it into `DashboardData`.
 
 - Reuses `s.publish` (`internal/api/server.go`), the 25 MiB `maxBytes` guard, `render.Bundle`
   (ADR-0010), the raw serving path, the blob backend (ADR-0006), and the dashboard (`internal/web/`).
+- Decision recorded in [ADR-0023](../adr/0023-browser-artifact-upload.md).
 - Related ADRs: [0008](../adr/0008-separate-content-origin.md) (content origin / sandbox),
   [0013](../adr/0013-artifact-versioning.md) (versions).
-- No new ADR required — additive to the existing publish contract; content-negotiation + the
-  content-type allowlist are captured here.

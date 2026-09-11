@@ -88,15 +88,23 @@ type Server struct {
 	// Version is the deployed server's build version, exposed at GET /version so
 	// the CLI's `upgrade` command can check compatibility before advising a bump.
 	Version string
+	// Metrics, when non-nil, backs GET /metrics with the real Prometheus registry
+	// and is recorded by the Observe middleware. Nil keeps the not-implemented stub
+	// so a bare Server (e.g. in tests) needs no metrics wiring.
+	Metrics *Metrics
 }
 
 func (s *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
 	// Exempt paths — explicitly allowlisted, never unprotected by default.
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("ok")) })
-	mux.HandleFunc("GET /metrics", func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte("# metrics: not yet implemented\n"))
-	})
+	if s.Metrics != nil {
+		mux.Handle("GET /metrics", s.Metrics.Handler())
+	} else {
+		mux.HandleFunc("GET /metrics", func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = w.Write([]byte("# metrics: not yet implemented\n"))
+		})
+	}
 	// CLI login discovery (exempt, like /health): lets `artifacta login <url>`
 	// bootstrap the loopback PKCE flow from the URL alone — no hand-configured
 	// issuer/client_id. Unwrapped (no auth, no rate limit) and registered here so

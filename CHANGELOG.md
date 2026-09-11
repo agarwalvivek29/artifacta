@@ -15,6 +15,8 @@ All notable changes to ArtifactA are documented here. Versions follow [SemVer](h
 - **Install-by-URL**: `install.sh` accepts `ARTIFACTA_DEPLOYMENT=<url>` (or `--url`) and installs
   the exact CLI version the deployment runs (via a new unauthenticated **`GET /version`** that
   exposes the deployed version + `min_cli_version` + `capabilities`).
+- **`artifacta login` and `doctor`** surface a CLI/deployment version mismatch immediately, with
+  the exact command to match it (advice only — the CLI never self-updates).
 
 ## 0.0.3 — 2026-09-11
 

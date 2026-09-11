@@ -36,6 +36,10 @@ the **deployed server version** and whether the **new CLI release requires** a n
    to match it rather than being stranded. `install.sh` accepts a deployment URL
    (`ARTIFACTA_DEPLOYMENT=<url>` or `--url <url>`), queries `<url>/version`, and installs the
    matching CLI. This is the robust default: the CLI always tracks the deployment it talks to.
+   `login` and `doctor` surface a mismatch immediately (advice only) so it never surprises the
+   user later. Automatic/silent self-update is deliberately not done — the CLI often does not own
+   its install location (sudo / package manager / container) and replacing a running binary
+   without consent is a footgun.
 
 3. **Release declares its server dependency (fallback signal).** A CLI release may carry a
    `min-server-version: X.Y.Z` marker in its GitHub release body; absent = independent of the

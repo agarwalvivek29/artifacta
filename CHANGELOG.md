@@ -2,6 +2,31 @@
 
 All notable changes to ArtifactA are documented here. Versions follow [SemVer](https://semver.org).
 
+## 0.0.8 — 2026-09-11
+
+### Added
+
+- **Share from the viewer.** The viewer now has an owner-only **Share** button in the top bar that
+  opens the same sharing dialog the dashboard already had — set visibility (private / invited / org /
+  link), invite people by email, and claim a custom subdomain — without going back to the artifact
+  list first. Previously sharing was only reachable from the dashboard or the CLI. The `GET /artifacts/{slug}`
+  metadata now returns an owner-only `owner_email` so the dialog can label the owner's own row.
+- **Verify the audit trail from a remote.** `artifacta audit verify` now works when logged in to a
+  deployment: it fetches your own audit rows over the new owner-scoped `GET /audit` endpoint and
+  verifies each row's hash client-side. (Full hash-chain continuity still runs on the server host —
+  a caller only ever sees rows that concern them, never the instance-wide trail.)
+
+### Changed
+
+- **`artifacta healthcheck [url]`** now probes the right server: an explicit URL argument if given,
+  else the server you're logged in to, else the local listen address. A remote user gets a real
+  answer instead of a bogus `127.0.0.1:8080` "connection refused". A bare `host:port` argument is
+  accepted (an `http://` scheme is assumed). The distroless container probe is unchanged.
+- **`public` is now accepted as a visibility alias for `link`** in both the API and the CLI, since
+  people arriving from other tools reach for "public" for a no-login link. It resolves to the same
+  VPN-gated `link` level (ADR-0018) — the canonical name shown everywhere stays `link`. The
+  set-visibility 400 now lists the valid values.
+
 ## 0.0.7 — 2026-09-11
 
 ### Added

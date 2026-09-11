@@ -2,6 +2,18 @@
 
 All notable changes to ArtifactA are documented here. Versions follow [SemVer](https://semver.org).
 
+## 0.0.4 — 2026-09-11
+
+### Added
+
+- **`artifacta upgrade`** (ADR-0021): checks GitHub for a newer CLI and gives
+  deployment-aware advice. A release that declares a `min-server-version:` marker is
+  server-dependent — the CLI reads the deployment's version and only recommends the upgrade when
+  the server is new enough, otherwise it says to upgrade the server first. Independent releases
+  prompt the upgrade unconditionally. It advises; it never self-updates the binary.
+- **`GET /version`** (unauthenticated): the deployed server's version plus a compatibility
+  contract (`min_cli_version`, `capabilities`).
+
 ## 0.0.3 — 2026-09-11
 
 ### Added

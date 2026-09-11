@@ -63,7 +63,10 @@ ArtifactA **diverges** from the template's JWT + shared-API-key default — see
 [ADR 0002](docs/adr/0002-auth-model.md). It uses a pluggable identity `Provider`
 (local now; OIDC + trusted-forward-auth later) and makes the **per-artifact** decision
 (`domain.CanView`) in the app. Identity is never client-asserted; grants bind to the
-immutable subject. Exempt paths: `GET /health`, `GET /metrics`.
+immutable subject. Exempt paths: `GET /health`, `GET /metrics`, `GET /.well-known/artifacta-cli`
+(CLI login discovery — public issuer/client_id only). The CLI is a public client: `artifacta
+login <url>` self-configures from the discovery endpoint and holds an OIDC refresh token
+(`offline_access`) so sessions persist ([ADR-0020](docs/adr/0020-cli-public-client-and-refresh.md)).
 
 ## Architectural Constraints
 
@@ -78,12 +81,13 @@ immutable subject. Exempt paths: `GET /health`, `GET /metrics`.
 
 ## Key ADRs
 
-| ADR                                                     | Decision                                                                                    | Status   |
-| ------------------------------------------------------- | ------------------------------------------------------------------------------------------- | -------- |
-| [0001](docs/adr/0001-monorepo-structure.md)             | Monorepo with per-service isolation                                                         | Accepted |
-| [0002](docs/adr/0002-auth-model.md)                     | Pluggable OIDC/local/forward-auth + per-artifact RBAC (diverges from JWT+API-key default)   | Accepted |
-| [0006](docs/adr/0006-s3-blob-adapter-backend-only.md)   | Selectable file/S3 blob store, backend-only (no presigned URLs; every byte gated + audited) | Accepted |
-| [0009](docs/adr/0009-postgres-store-adapter.md)         | Selectable file/Postgres store (GORM, auto-migrating; label UNIQUE constraint)              | Accepted |
-| [0017](docs/adr/0017-subdomain-artifact-addressing.md)  | Subdomain artifact addressing (`{slug\|label}.{root}`), host-router rewrite                 | Accepted |
-| [0018](docs/adr/0018-anonymous-vpn-gated-visibility.md) | Anonymous, VPN-gated `LINK` visibility (the one `CanView` carve-out)                        | Accepted |
-| [0019](docs/adr/0019-invite-by-email-grants.md)         | Invite-by-email grants (email or subject; verified email matched in `CanView`)              | Accepted |
+| ADR                                                     | Decision                                                                                        | Status   |
+| ------------------------------------------------------- | ----------------------------------------------------------------------------------------------- | -------- |
+| [0001](docs/adr/0001-monorepo-structure.md)             | Monorepo with per-service isolation                                                             | Accepted |
+| [0002](docs/adr/0002-auth-model.md)                     | Pluggable OIDC/local/forward-auth + per-artifact RBAC (diverges from JWT+API-key default)       | Accepted |
+| [0006](docs/adr/0006-s3-blob-adapter-backend-only.md)   | Selectable file/S3 blob store, backend-only (no presigned URLs; every byte gated + audited)     | Accepted |
+| [0009](docs/adr/0009-postgres-store-adapter.md)         | Selectable file/Postgres store (GORM, auto-migrating; label UNIQUE constraint)                  | Accepted |
+| [0017](docs/adr/0017-subdomain-artifact-addressing.md)  | Subdomain artifact addressing (`{slug\|label}.{root}`), host-router rewrite                     | Accepted |
+| [0018](docs/adr/0018-anonymous-vpn-gated-visibility.md) | Anonymous, VPN-gated `LINK` visibility (the one `CanView` carve-out)                            | Accepted |
+| [0019](docs/adr/0019-invite-by-email-grants.md)         | Invite-by-email grants (email or subject; verified email matched in `CanView`)                  | Accepted |
+| [0020](docs/adr/0020-cli-public-client-and-refresh.md)  | CLI public-client login (discovery + PKCE) + refresh tokens; `/me`, `/artifacts` (extends 0007) | Accepted |

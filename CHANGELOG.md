@@ -2,6 +2,24 @@
 
 All notable changes to ArtifactA are documented here. Versions follow [SemVer](https://semver.org).
 
+## 0.0.3 — 2026-09-11
+
+### Added
+
+- **CLI login-by-URL** (ADR-0020): `artifacta login <url>` self-configures from a new
+  unauthenticated discovery endpoint `GET /.well-known/artifacta-cli` — no hand-set issuer or
+  client id. The CLI is a public client (PKCE, no secret).
+- **Refresh tokens** (`offline_access`): the CLI renews its session transparently instead of
+  forcing repeated re-logins; a refresh that returns no id_token cleanly prompts re-login.
+- **`artifacta doctor`** (connectivity + auth health check) and **`artifacta whoami`**, backed
+  by a new authenticated `GET /me`. **`GET /artifacts`** lists the caller's own artifacts.
+
+### Fixed
+
+- CLI no longer silently writes the local store when pointed at a deployment: `publish` /
+  `share` error with a login prompt when remote-targeted and logged out, `ls` lists the
+  deployment's artifacts, and `audit verify` reports it is a local-store operation.
+
 ## 0.0.2 — 2026-09-11
 
 ### Added

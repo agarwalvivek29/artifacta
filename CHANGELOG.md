@@ -2,6 +2,34 @@
 
 All notable changes to ArtifactA are documented here. Versions follow [SemVer](https://semver.org).
 
+## 0.0.7 — 2026-09-11
+
+### Added
+
+- **CLI ↔ UI parity for sharing and review** (spec 6): the `artifacta` CLI now reaches the same
+  operations the Share UI already had, over the existing, unchanged API endpoints — so a headless
+  or scripted workflow no longer has to drop back to the browser:
+  - `artifacta visibility <slug> <private|invited|org|link>` — set visibility explicitly
+    (`PATCH …/visibility`), instead of only flipping to `invited` as a side effect of `share`.
+  - `artifacta share <slug> <email-or-sub>` — now **invites by email** as well as by subject; it
+    auto-detects which and posts `{email}` or `{grantee_sub}` (ADR-0019). Still flips visibility to
+    `invited` first.
+  - `artifacta unshare <slug> <email-or-sub>` — revoke a grant (`DELETE …/grants/{grantee}`).
+  - `artifacta label <slug> <label>` — claim a custom `{label}.{root}` subdomain (`PATCH …/label`,
+    ADR-0017). On a deployment without a root domain it prints the canonical `/a/{slug}` link and a
+    note rather than a blank line.
+  - `artifacta comment add <slug> <text> [--reply <parent-id>]`, `comment ls <slug>`,
+    `comment resolve <slug> <id>` — review comments and threaded replies (ADR-0014/0016). `ls`
+    groups replies under their root and marks resolved/anchored rows.
+
+### Changed
+
+- **BREAKING (local dev only): `artifacta share` is now remote-only.** Its local-dev store path was
+  removed so the whole sharing surface (share/unshare/visibility/label/comment) behaves identically
+  and always targets a deployment. This removes a latent bug where local `share a@b.com` stored the
+  email as a bogus subject, and the asymmetry of "share works locally but unshare does not." In
+  local-dev mode `share` now errors with a login prompt; `publish` and `ls` still work locally.
+
 ## 0.0.6 — 2026-09-11
 
 ### Fixed

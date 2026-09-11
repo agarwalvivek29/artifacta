@@ -277,15 +277,32 @@ Agents working on this service may:
 - [ADR 0001](../../docs/adr/0001-monorepo-structure.md) — Monorepo structure
 - [ADR 0006](../../docs/adr/0006-s3-blob-adapter-backend-only.md) — S3-compatible blob adapter, backend-only (no presigned URLs)
 - [ADR 0013](../../docs/adr/0013-artifact-versioning.md) — Artifact versioning (immutable versions, explicit update)
+- [ADR 0022](../../docs/adr/0022-observability-and-server-lifecycle.md) — Server timeouts + graceful shutdown, `slog` request logs, Prometheus `/metrics`
+
+---
+
+## Operations
+
+- **`serve`** runs an explicit `http.Server` with timeouts (ReadHeader 10s / Read 120s / Idle 120s,
+  WriteTimeout 0 to not cut large downloads) and drains gracefully on SIGINT/SIGTERM (ADR-0022).
+- **Logging**: structured JSON request logs on stdout via the `api.Observe` middleware; level from
+  `ARTIFACTA_LOG_LEVEL` (default `info`). Query strings are never logged (token/PII safe).
+- **Metrics**: `GET /metrics` (Prometheus) — `http_requests_total`, `http_request_duration_seconds`,
+  `http_requests_in_flight`, `go_*`. Route labels are the matched `r.Pattern` (cardinality-safe).
+- **Healthcheck**: `artifacta healthcheck` (GET `/health`, exit 0 on 200) — the distroless-friendly
+  container probe.
+- **Deploy**: `infra/docker-compose.prod.yml` (API + Postgres + MinIO) is the reproducible self-host
+  unit. Non-OIDC deploys must set `ARTIFACTA_TOKEN` (serve now fails loud if it's empty).
 
 ---
 
 ## Changelog
 
-| Date       | Change                                                                                                                                                                                                               | Author        |
-| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------- |
-| 2026-07-07 | Service created                                                                                                                                                                                                      | [name]        |
-| 2026-08-25 | Immutable artifact versioning: `POST /artifacts/{slug}/versions`, `GET /a/{slug}/v/{n}/raw`, `GET /artifacts/{slug}` metadata (ADR-0013)                                                                             | Vivek Agarwal |
-| 2026-09-11 | S3-compatible blob backend, backend-only (ADR-0006): `internal/infra/blob_s3.go`, selected via `ARTIFACTA_BLOB=s3`; AWS SDK v2 dep; MinIO self-host default. No presigned URLs — bytes stay CanView-gated + audited. | Vivek Agarwal |
-| 2026-09-11 | CLI login-by-URL + refresh tokens (ADR-0020): discovery `GET /.well-known/artifacta-cli`, `GET /me`, `GET /artifacts`; `artifacta login <url>` / `doctor` / `whoami`; footgun fixes (no silent local writes).        | Vivek Agarwal |
-| 2026-09-11 | CLI upgrade check (ADR-0021): `GET /version` (deployed version + min-CLI/capabilities) and `artifacta upgrade` — server-aware advice via a `min-server-version` release marker.                                      | Vivek Agarwal |
+| Date       | Change                                                                                                                                                                                                                 | Author        |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------- |
+| 2026-07-07 | Service created                                                                                                                                                                                                        | [name]        |
+| 2026-08-25 | Immutable artifact versioning: `POST /artifacts/{slug}/versions`, `GET /a/{slug}/v/{n}/raw`, `GET /artifacts/{slug}` metadata (ADR-0013)                                                                               | Vivek Agarwal |
+| 2026-09-11 | S3-compatible blob backend, backend-only (ADR-0006): `internal/infra/blob_s3.go`, selected via `ARTIFACTA_BLOB=s3`; AWS SDK v2 dep; MinIO self-host default. No presigned URLs — bytes stay CanView-gated + audited.   | Vivek Agarwal |
+| 2026-09-11 | CLI login-by-URL + refresh tokens (ADR-0020): discovery `GET /.well-known/artifacta-cli`, `GET /me`, `GET /artifacts`; `artifacta login <url>` / `doctor` / `whoami`; footgun fixes (no silent local writes).          | Vivek Agarwal |
+| 2026-09-11 | CLI upgrade check (ADR-0021): `GET /version` (deployed version + min-CLI/capabilities) and `artifacta upgrade` — server-aware advice via a `min-server-version` release marker.                                        | Vivek Agarwal |
+| 2026-09-11 | Ops hardening (ADR-0022): server timeouts + graceful shutdown; `slog` JSON request logs + real Prometheus `/metrics`; `artifacta healthcheck`; `infra/docker-compose.prod.yml`; serve fails loud on empty local token. | Vivek Agarwal |

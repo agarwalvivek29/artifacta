@@ -82,14 +82,15 @@ login <url>` self-configures from the discovery endpoint and holds an OIDC refre
 
 ## Key ADRs
 
-| ADR                                                     | Decision                                                                                        | Status   |
-| ------------------------------------------------------- | ----------------------------------------------------------------------------------------------- | -------- |
-| [0001](docs/adr/0001-monorepo-structure.md)             | Monorepo with per-service isolation                                                             | Accepted |
-| [0002](docs/adr/0002-auth-model.md)                     | Pluggable OIDC/local/forward-auth + per-artifact RBAC (diverges from JWT+API-key default)       | Accepted |
-| [0006](docs/adr/0006-s3-blob-adapter-backend-only.md)   | Selectable file/S3 blob store, backend-only (no presigned URLs; every byte gated + audited)     | Accepted |
-| [0009](docs/adr/0009-postgres-store-adapter.md)         | Selectable file/Postgres store (GORM, auto-migrating; label UNIQUE constraint)                  | Accepted |
-| [0017](docs/adr/0017-subdomain-artifact-addressing.md)  | Subdomain artifact addressing (`{slug\|label}.{root}`), host-router rewrite                     | Accepted |
-| [0018](docs/adr/0018-anonymous-vpn-gated-visibility.md) | Anonymous, VPN-gated `LINK` visibility (the one `CanView` carve-out)                            | Accepted |
-| [0019](docs/adr/0019-invite-by-email-grants.md)         | Invite-by-email grants (email or subject; verified email matched in `CanView`)                  | Accepted |
-| [0020](docs/adr/0020-cli-public-client-and-refresh.md)  | CLI public-client login (discovery + PKCE) + refresh tokens; `/me`, `/artifacts` (extends 0007) | Accepted |
-| [0021](docs/adr/0021-cli-upgrade-version-check.md)      | CLI `upgrade` check + `GET /version` (deployed version + min-CLI/capabilities compat contract)  | Accepted |
+| ADR                                                         | Decision                                                                                                        | Status   |
+| ----------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- | -------- |
+| [0001](docs/adr/0001-monorepo-structure.md)                 | Monorepo with per-service isolation                                                                             | Accepted |
+| [0002](docs/adr/0002-auth-model.md)                         | Pluggable OIDC/local/forward-auth + per-artifact RBAC (diverges from JWT+API-key default)                       | Accepted |
+| [0006](docs/adr/0006-s3-blob-adapter-backend-only.md)       | Selectable file/S3 blob store, backend-only (no presigned URLs; every byte gated + audited)                     | Accepted |
+| [0009](docs/adr/0009-postgres-store-adapter.md)             | Selectable file/Postgres store (GORM, auto-migrating; label UNIQUE constraint)                                  | Accepted |
+| [0017](docs/adr/0017-subdomain-artifact-addressing.md)      | Subdomain artifact addressing (`{slug\|label}.{root}`), host-router rewrite                                     | Accepted |
+| [0018](docs/adr/0018-anonymous-vpn-gated-visibility.md)     | Anonymous, VPN-gated `LINK` visibility (the one `CanView` carve-out)                                            | Accepted |
+| [0019](docs/adr/0019-invite-by-email-grants.md)             | Invite-by-email grants (email or subject; verified email matched in `CanView`)                                  | Accepted |
+| [0020](docs/adr/0020-cli-public-client-and-refresh.md)      | CLI public-client login (discovery + PKCE) + refresh tokens; `/me`, `/artifacts` (extends 0007)                 | Accepted |
+| [0021](docs/adr/0021-cli-upgrade-version-check.md)          | CLI `upgrade` check + `GET /version` (deployed version + min-CLI/capabilities compat contract)                  | Accepted |
+| [0022](docs/adr/0022-observability-and-server-lifecycle.md) | Server timeouts + graceful shutdown; `slog` request logs + Prometheus `/metrics` (route labels via `r.Pattern`) | Accepted |

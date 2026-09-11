@@ -56,6 +56,12 @@ persist, and remote-vs-local intent to be explicit.
   degrades to a clear re-login rather than a failure.
 - Tokens (incl. refresh) remain in the `0600` config file — unchanged from ADR-0007's
   `TODO(hardening)` to move them to the OS keychain.
+- **Fixed CLI redirect URI (update 2026-09-11).** A random loopback port cannot be pre-registered
+  in IdPs that match redirect URIs exactly (Okta rejects it with `invalid_request`). The server
+  therefore advertises a fixed loopback redirect URI via the discovery endpoint
+  (`ARTIFACTA_OIDC_CLI_REDIRECT_URI`, e.g. `http://127.0.0.1:53682/callback`); the CLI binds that
+  exact port and sends that exact `redirect_uri`, and the operator registers the same one URI in
+  the IdP app. Empty falls back to an ephemeral port (only for IdPs that allow any loopback port).
 
 ---
 

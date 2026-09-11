@@ -42,6 +42,11 @@ htmlcov/
 *.test
 *.out
 vendor/
+# Exception: render-parity vendored browser assets (Mermaid, React, …) are
+# embedded into the binary via go:embed and MUST be committed — they are not a
+# Go-modules `vendor/` tree.
+!services/artifacta-api/internal/render/vendor/
+!services/artifacta-api/internal/render/vendor/**
 
 # ─── Rust ─────────────────────────────────────────────────────────────────────
 target/
@@ -106,3 +111,4 @@ temp/
 /.private/
 
 .sessions/
+.gstack/

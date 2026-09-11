@@ -71,6 +71,9 @@ type Config struct {
 	// the CLI routes commands to that server explicitly rather than inferring intent
 	// from the base URL. Cleared when a refresh fails and re-login is required.
 	LoggedIn bool `json:"logged_in"`
+	// LogLevel sets the server's structured-log verbosity: debug/info/warn/error
+	// (default info). Overridable via ARTIFACTA_LOG_LEVEL.
+	LogLevel string `json:"log_level"`
 }
 
 // OIDCEnabled reports whether enough OIDC config is present to wire browser SSO.
@@ -143,6 +146,13 @@ func applyEnv(c *Config) {
 	setFromEnv("ARTIFACTA_SESSION_SECRET", &c.SessionSecret)
 	setFromEnv("ARTIFACTA_ACCESS_TOKEN", &c.AccessToken)
 	setFromEnv("ARTIFACTA_REFRESH_TOKEN", &c.RefreshToken)
+	setFromEnv("ARTIFACTA_LOG_LEVEL", &c.LogLevel)
+	// The server's own single-token identity (Local auth). Lets a containerized
+	// local-auth deploy inject the token/identity via env instead of shipping a
+	// pre-written config.json, and makes the serve() empty-token guard actionable.
+	setFromEnv("ARTIFACTA_TOKEN", &c.Token)
+	setFromEnv("ARTIFACTA_SUB", &c.Sub)
+	setFromEnv("ARTIFACTA_EMAIL", &c.Email)
 }
 
 // setFromEnv writes the value of env var key into dst only when it is non-empty.

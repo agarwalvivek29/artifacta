@@ -17,9 +17,12 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
+	"time"
 
 	artifactav1 "github.com/agarwalvivek29/here.now/packages/schema/generated/go/artifacta/v1"
 	"github.com/agarwalvivek29/here.now/services/artifacta-api/internal/api"
@@ -50,6 +53,7 @@ Usage:
                             share an artifact with a subject (sets visibility to invited)
   artifacta ls                list your artifacts
   artifacta serve             run the viewer server
+  artifacta healthcheck       probe a running server's /health (exit 0 = healthy)
   artifacta audit verify      verify the audit-log hash chain
   artifacta version           print the build version
 
@@ -80,6 +84,8 @@ func Run(args []string) error {
 		return ls()
 	case "serve":
 		return serve()
+	case "healthcheck":
+		return healthcheck()
 	case "audit":
 		return audit(args[1:])
 	case "version", "--version", "-v":
@@ -813,6 +819,18 @@ func whoami() error {
 	return nil
 }
 
+// Server timeouts (see ADR-0022). Pragmatic posture for a streaming file server:
+// ReadHeaderTimeout kills header-Slowloris; ReadTimeout fits a 25 MiB upload on a
+// slow-but-real link; WriteTimeout is 0 so a large artifact download to a slow VPN
+// client is never cut mid-stream; IdleTimeout reaps idle keep-alives.
+const (
+	serveReadHeaderTimeout = 10 * time.Second
+	serveReadTimeout       = 120 * time.Second
+	serveWriteTimeout      = 0
+	serveIdleTimeout       = 120 * time.Second
+	serveShutdownGrace     = 20 * time.Second
+)
+
 func serve() error {
 	c, err := config.Load()
 	if err != nil {
@@ -822,7 +840,9 @@ func serve() error {
 	if err != nil {
 		return err
 	}
-	srv := &api.Server{Store: st, Blob: bl, BaseURL: c.BaseURL, RootDomain: c.RootDomain, OrgName: c.OrgName, LogoURL: c.LogoURL, Version: Version}
+	logger := api.NewLogger(c.LogLevel)
+	metrics := api.NewMetrics()
+	srv := &api.Server{Store: st, Blob: bl, BaseURL: c.BaseURL, RootDomain: c.RootDomain, OrgName: c.OrgName, LogoURL: c.LogoURL, Version: Version, Metrics: metrics}
 	// Config-driven auth selection: OIDC browser SSO when configured (ADR-0007),
 	// otherwise the Local single-token adapter for zero-dependency/dev deploys.
 	if c.OIDCEnabled() {
@@ -839,9 +859,74 @@ func serve() error {
 		srv.OIDC = p
 		fmt.Printf("auth: oidc browser sso (issuer %s)\n", c.OIDCIssuer)
 	} else {
+		// Fail loud rather than boot a server that silently rejects every request:
+		// with an empty token the Local adapter can never match a caller. Mirrors
+		// the OIDC SessionSecret guard above.
+		if c.Token == "" {
+			return fmt.Errorf("local auth selected but no token is set — set ARTIFACTA_TOKEN (or configure OIDC) so the server can authenticate a caller")
+		}
 		srv.Auth = &api.Local{Token: c.Token, ID: c.Identity()}
 		fmt.Printf("auth: local single-token adapter\n")
 	}
 	fmt.Printf("artifacta %s serving on %s  (base URL %s)\n", Version, c.Addr, c.BaseURL)
-	return http.ListenAndServe(c.Addr, srv.Routes())
+
+	httpSrv := &http.Server{
+		Addr:              c.Addr,
+		Handler:           api.Observe(srv.Routes(), logger, metrics),
+		ReadHeaderTimeout: serveReadHeaderTimeout,
+		ReadTimeout:       serveReadTimeout,
+		WriteTimeout:      serveWriteTimeout,
+		IdleTimeout:       serveIdleTimeout,
+	}
+
+	// Run the listener in the background and drain gracefully on SIGINT/SIGTERM so
+	// a rollout never cuts an in-flight publish or download mid-write.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	errCh := make(chan error, 1)
+	go func() {
+		if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			errCh <- err
+		}
+	}()
+	select {
+	case err := <-errCh:
+		return err
+	case <-ctx.Done():
+		stop() // restore default signal handling so a second Ctrl-C force-quits
+		logger.Info("shutting down", "grace", serveShutdownGrace.String())
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), serveShutdownGrace)
+		defer cancel()
+		return httpSrv.Shutdown(shutdownCtx)
+	}
+}
+
+// healthcheck is the container-native liveness probe: it GETs /health on the
+// configured (or ARTIFACTA_ADDR) address and exits 0 on 200, non-zero otherwise.
+// The prod image is distroless (no shell/curl), so the compose/orchestrator
+// healthcheck invokes this subcommand instead.
+func healthcheck() error {
+	c, err := config.Load()
+	if err != nil {
+		return err
+	}
+	addr := c.Addr
+	// Turn a bare listen address (":8080") into a loopback URL to dial.
+	host, port, splitErr := net.SplitHostPort(strings.TrimSpace(addr))
+	if splitErr != nil {
+		return fmt.Errorf("invalid address %q: %w", addr, splitErr)
+	}
+	if host == "" || host == "0.0.0.0" || host == "::" {
+		host = "127.0.0.1"
+	}
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get(fmt.Sprintf("http://%s/health", net.JoinHostPort(host, port)))
+	if err != nil {
+		return fmt.Errorf("healthcheck: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("healthcheck: status %d", resp.StatusCode)
+	}
+	return nil
 }

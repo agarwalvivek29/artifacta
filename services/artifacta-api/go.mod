@@ -12,6 +12,7 @@ require (
 	github.com/evanw/esbuild v0.28.2
 	github.com/jackc/pgx/v5 v5.5.5
 	github.com/prometheus/client_golang v1.24.1
+	github.com/yuin/goldmark v1.7.8
 	golang.org/x/oauth2 v0.36.0
 	google.golang.org/protobuf v1.36.11
 	gorm.io/driver/postgres v1.5.11

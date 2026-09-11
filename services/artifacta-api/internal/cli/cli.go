@@ -1192,7 +1192,7 @@ func serve() error {
 	}
 	logger := api.NewLogger(c.LogLevel)
 	metrics := api.NewMetrics()
-	srv := &api.Server{Store: st, Blob: bl, BaseURL: c.BaseURL, RootDomain: c.RootDomain, OrgName: c.OrgName, LogoURL: c.LogoURL, Version: Version, Metrics: metrics, Egress: c.CDNEgress}
+	srv := &api.Server{Store: st, Blob: bl, BaseURL: c.BaseURL, RootDomain: c.RootDomain, OrgName: c.OrgName, LogoURL: c.LogoURL, Version: Version, Metrics: metrics, Egress: c.CDNEgress, UploadUI: c.UploadUI}
 	// Config-driven auth selection: OIDC browser SSO when configured (ADR-0007),
 	// otherwise the Local single-token adapter for zero-dependency/dev deploys.
 	if c.OIDCEnabled() {

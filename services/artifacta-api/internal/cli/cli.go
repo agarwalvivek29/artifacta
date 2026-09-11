@@ -12,6 +12,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"mime"
 	"net"
 	"net/http"
 	"net/url"
@@ -397,6 +398,48 @@ func openBrowser(target string) error {
 	return exec.Command(name, args...).Start()
 }
 
+// contentTypeForPath derives the artifact's Content-Type from the file's
+// extension so a publish is labeled correctly (an SVG stays image/svg+xml, a
+// Markdown file becomes text/markdown, etc.) instead of the old hardcoded
+// text/html. The override table is AUTHORITATIVE, not a fallback: the distroless
+// production image ships no /etc/mime.types, so mime.TypeByExtension resolves
+// only Go's small builtin set there — we must not depend on the OS mime DB for
+// the types this feature cares about. Unknown extensions fall back to
+// mime.TypeByExtension and finally to text/html (the historical default, so a
+// bare/extension-less file still publishes as an HTML artifact).
+func contentTypeForPath(path string) string {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".html", ".htm":
+		return "text/html; charset=utf-8"
+	case ".md", ".markdown":
+		return "text/markdown; charset=utf-8"
+	case ".svg":
+		return "image/svg+xml"
+	case ".json":
+		return "application/json"
+	case ".csv":
+		return "text/csv; charset=utf-8"
+	case ".txt", ".text":
+		return "text/plain; charset=utf-8"
+	case ".xml":
+		return "application/xml"
+	case ".png":
+		return "image/png"
+	case ".jpg", ".jpeg":
+		return "image/jpeg"
+	case ".gif":
+		return "image/gif"
+	case ".webp":
+		return "image/webp"
+	case ".pdf":
+		return "application/pdf"
+	}
+	if ct := mime.TypeByExtension(strings.ToLower(filepath.Ext(path))); ct != "" {
+		return ct
+	}
+	return "text/html; charset=utf-8"
+}
+
 func publish(args []string) error {
 	// Parse an optional `--update <slug>` flag; it may appear before or after the
 	// file path. Everything else is treated as the positional <file> argument.
@@ -478,7 +521,7 @@ func publish(args []string) error {
 		OwnerSub:      c.Sub,
 		Title:         filepath.Base(path),
 		Visibility:    artifactav1.Visibility_VISIBILITY_PRIVATE, // private by default
-		ContentType:   "text/html; charset=utf-8",
+		ContentType:   contentTypeForPath(path),
 		CreatedAt:     now,
 		LatestVersion: firstVersion,
 	}
@@ -520,7 +563,7 @@ func publishRemote(baseURL, token, path string) (string, error) {
 		Slug string `json:"slug"`
 		URL  string `json:"url"`
 	}
-	if err := doRemote(http.MethodPost, endpoint, token, "text/html; charset=utf-8", f, http.StatusCreated, &out); err != nil {
+	if err := doRemote(http.MethodPost, endpoint, token, contentTypeForPath(path), f, http.StatusCreated, &out); err != nil {
 		return "", fmt.Errorf("publish failed: %w", err)
 	}
 	return out.URL, nil
@@ -543,7 +586,7 @@ func addVersionRemote(baseURL, token, slug, path string) (int, string, error) {
 		Version int    `json:"version"`
 		URL     string `json:"url"`
 	}
-	if err := doRemote(http.MethodPost, endpoint, token, "text/html; charset=utf-8", f, http.StatusCreated, &out); err != nil {
+	if err := doRemote(http.MethodPost, endpoint, token, contentTypeForPath(path), f, http.StatusCreated, &out); err != nil {
 		return 0, "", fmt.Errorf("add-version failed: %w", err)
 	}
 	return out.Version, out.URL, nil
@@ -1149,7 +1192,7 @@ func serve() error {
 	}
 	logger := api.NewLogger(c.LogLevel)
 	metrics := api.NewMetrics()
-	srv := &api.Server{Store: st, Blob: bl, BaseURL: c.BaseURL, RootDomain: c.RootDomain, OrgName: c.OrgName, LogoURL: c.LogoURL, Version: Version, Metrics: metrics}
+	srv := &api.Server{Store: st, Blob: bl, BaseURL: c.BaseURL, RootDomain: c.RootDomain, OrgName: c.OrgName, LogoURL: c.LogoURL, Version: Version, Metrics: metrics, Egress: c.CDNEgress}
 	// Config-driven auth selection: OIDC browser SSO when configured (ADR-0007),
 	// otherwise the Local single-token adapter for zero-dependency/dev deploys.
 	if c.OIDCEnabled() {
@@ -1174,6 +1217,11 @@ func serve() error {
 		}
 		srv.Auth = &api.Local{Token: c.Token, ID: c.Identity()}
 		fmt.Printf("auth: local single-token adapter\n")
+	}
+	if c.CDNEgress {
+		fmt.Printf("render: CDN egress ALLOWED — artifacts may load deps from a CDN at view time\n")
+	} else {
+		fmt.Printf("render: air-gapped (default) — deps bundled at publish, strict no-egress CSP\n")
 	}
 	fmt.Printf("artifacta %s serving on %s  (base URL %s)\n", Version, c.Addr, c.BaseURL)
 

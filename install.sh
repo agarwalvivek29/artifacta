@@ -3,10 +3,17 @@
 #
 #   curl -fsSL https://raw.githubusercontent.com/agarwalvivek29/artifacta/main/install.sh | sh
 #
-# Options (environment variables):
-#   ARTIFACTA_VERSION=0.0.1              pin a version (default: latest release)
-#   ARTIFACTA_INSTALL_DIR=/usr/local/bin install location (default: /usr/local/bin,
-#                                        falls back to sudo, then ~/.local/bin)
+# Options (environment variables or --flags via `sh -s -- <flags>`):
+#   ARTIFACTA_VERSION=0.0.1      --version 0.0.1   pin a version (highest precedence)
+#   ARTIFACTA_DEPLOYMENT=<url>   --url <url>        install the version your deployment
+#                                                   runs (queries <url>/version) — the
+#                                                   guaranteed-compatible choice
+#   ARTIFACTA_INSTALL_DIR=/usr/local/bin           install location (default:
+#                                                   /usr/local/bin, then sudo, then
+#                                                   ~/.local/bin)
+#
+# Match a deployment (recommended):
+#   curl -fsSL .../install.sh | ARTIFACTA_DEPLOYMENT=https://artifacta.example sh
 #
 # Windows users: download the .zip from the GitHub Releases page, or use the
 # container image ghcr.io/agarwalvivek29/artifacta-cli.
@@ -35,8 +42,27 @@ case "$arch" in
   *) err "unsupported architecture: $arch" ;;
 esac
 
-# ── resolve version (latest unless pinned) ──────────────────────────────────
+# ── resolve version ─────────────────────────────────────────────────────────
+# Precedence: explicit pin (ARTIFACTA_VERSION / --version) > deployment match
+# (ARTIFACTA_DEPLOYMENT / --url, queries <url>/version) > latest GitHub release.
 ver="${ARTIFACTA_VERSION:-}"
+url="${ARTIFACTA_DEPLOYMENT:-}"
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --version) ver="${2:-}"; shift 2 ;;
+    --url) url="${2:-}"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+
+if [ -z "$ver" ] && [ -n "$url" ]; then
+  echo "Querying deployment ${url} for its version…"
+  ver=$(curl -fsSL "${url%/}/version" \
+    | grep -o '"version"[[:space:]]*:[[:space:]]*"[^"]*"' \
+    | sed -E 's/.*"([^"]*)"$/\1/' | head -1)
+  [ -n "$ver" ] || err "could not read the deployed version from ${url%/}/version"
+  echo "Deployment runs ${ver#v} — installing the matching CLI for guaranteed compatibility."
+fi
 if [ -z "$ver" ]; then
   ver=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" \
     | grep -m1 '"tag_name"' | sed -E 's/.*"tag_name": *"v?([^"]+)".*/\1/')

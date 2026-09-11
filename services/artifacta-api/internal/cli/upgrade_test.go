@@ -79,6 +79,28 @@ func TestDecideUpgrade(t *testing.T) {
 	}
 }
 
+func TestDecideMatch(t *testing.T) {
+	// CLI matches the deployment → compatible, nothing to do.
+	if a := decideMatch("0.0.3", "0.0.3"); a.blockedByServer || !strings.Contains(a.message, "matches your deployment") {
+		t.Errorf("equal versions should be a clean match: %+v", a)
+	}
+	// CLI older than deployment → install the (newer) matching version.
+	a := decideMatch("0.0.2", "0.0.3")
+	if a.blockedByServer || !strings.Contains(a.message, "older") || !strings.Contains(a.message, "ARTIFACTA_VERSION=0.0.3") {
+		t.Errorf("older CLI should be told to install the deployment version: %+v", a)
+	}
+	// CLI newer than deployment → downgrade to match (the user's key scenario).
+	a = decideMatch("0.0.4", "0.0.3")
+	if !a.blockedByServer || !strings.Contains(a.message, "downgrade") || !strings.Contains(a.message, "ARTIFACTA_VERSION=0.0.3") {
+		t.Errorf("newer CLI should be offered a downgrade to the deployment version: %+v", a)
+	}
+	// dev build → install the deployment's release to match.
+	a = decideMatch("dev", "0.0.3")
+	if !strings.Contains(a.message, "dev build") || !strings.Contains(a.message, "ARTIFACTA_VERSION=0.0.3") {
+		t.Errorf("dev build should be told to install the matching release: %+v", a)
+	}
+}
+
 func TestServerVersion(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/version" {

@@ -127,3 +127,33 @@ func TestDashboardUnauthenticatedRendersSignin(t *testing.T) {
 		t.Fatalf("dashboard leaked to unauthenticated caller:\n%s", body)
 	}
 }
+
+// TestDashboardUploadFormToggle verifies the upload form appears only when the
+// ARTIFACTA_UPLOAD_UI toggle is on (ADR-0024), and never for an anonymous caller.
+func TestDashboardUploadFormToggle(t *testing.T) {
+	caller := &artifactav1.Identity{Sub: "local:me", Email: "me@localhost"}
+	const marker = `enctype="multipart/form-data"`
+
+	get := func(srv *Server) string {
+		rr := httptest.NewRecorder()
+		srv.Routes().ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/", nil))
+		return rr.Body.String()
+	}
+
+	on := newTestServer(t, t.TempDir(), fakeAuth{id: caller, ok: true})
+	on.UploadUI = true
+	if body := get(on); !strings.Contains(body, marker) || !strings.Contains(body, `id="uploadFab"`) || !strings.Contains(body, "Upload an artifact") {
+		t.Fatalf("upload FAB/dialog missing with toggle on")
+	}
+
+	off := newTestServer(t, t.TempDir(), fakeAuth{id: caller, ok: true})
+	if body := get(off); strings.Contains(body, marker) || strings.Contains(body, `id="uploadFab"`) {
+		t.Fatalf("upload FAB/dialog rendered with toggle off")
+	}
+
+	anon := newTestServer(t, t.TempDir(), fakeAuth{ok: false})
+	anon.UploadUI = true
+	if body := get(anon); strings.Contains(body, marker) {
+		t.Fatalf("upload form leaked to anonymous caller")
+	}
+}

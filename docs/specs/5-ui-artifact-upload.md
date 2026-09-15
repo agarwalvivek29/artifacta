@@ -1,7 +1,7 @@
 # Spec: Upload an artifact from the dashboard UI
 
 **Issue**: N/A (maintainer-requested)
-**Status**: Draft
+**Status**: Implemented (2026-09-11)
 **Author**: Vivek Agarwal
 **Date**: 2026-09-11
 **Services Affected**: `artifacta-api` (dashboard `web/`, the `POST /artifacts` handler, raw serving, config)
@@ -56,7 +56,10 @@ here." Vivek asked for this as a **minimal add-on** next to the create flow — 
 - Drag-and-drop, multi-file, or folder upload — a single file input is enough for v1.
 - Uploading a **new version** of an existing artifact from the UI (API supports it via
   `POST /artifacts/{slug}/versions`; a UI for it is a follow-up).
-- Client-side JavaScript — v1 is a plain HTML form, so it needs no dashboard CSP change.
+- Heavy client-side JavaScript / fetch — the upload is a **floating button + dialog** (mirroring the
+  share dialog) with only a small open/close + file-picker handler on the dashboard (the app origin,
+  which already runs the share/copy scripts). The submit itself stays a native full-page multipart
+  form POST — no fetch — so the dashboard still needs no CSP change.
 
 ---
 
@@ -131,18 +134,23 @@ sandbox/CSP that already governs HTML artifacts (no new privilege).
 
 ### The UI (dashboard `internal/web/`)
 
-Rendered only when `ARTIFACTA_UPLOAD_UI` is on — a plain form near the "Mine"/create area:
+Rendered only when `ARTIFACTA_UPLOAD_UI` is on — a floating **Upload** button (bottom-right FAB) that
+opens a dialog (the same overlay/card chrome as the share dialog), so the dashboard stays uncluttered
+instead of carrying a form on every view:
 
 ```
-[ Upload an artifact ]
+[ ＋ Upload ]  (fixed bottom-right)
+  ▼ opens dialog:
   <form method="POST" action="/artifacts" enctype="multipart/form-data">
-    <input type="file" name="file"
-           accept=".html,.htm,text/html,application/pdf,image/png,image/jpeg,image/gif,image/webp,image/svg+xml" required>
+    <input type="file" name="file" hidden required accept="…allowlist…">   ← triggered by a "Choose a file…" button
     <input type="text" name="title" placeholder="Title (optional)">
-    <button>Upload</button>
+    <button type="submit">Upload</button>   ← disabled until a file is chosen
   </form>
-  small print: "HTML, PDF, or image, up to 25 MiB. Private by default — you control who sees it."
+  footer small print: "HTML, PDF, or an image · up to 25 MiB · private by default"
 ```
+
+The dialog uses a small open/close + file-picker handler; the submit is a native full-page form POST
+(→ 303 redirect to the new artifact), so there is still no fetch and no dashboard CSP change.
 
 Full-page form POST → no fetch/inline JS → no dashboard CSP change. `DashboardData` gets an
 `UploadEnabled bool` the template branches on.
@@ -217,9 +225,11 @@ dashboard passes it into `DashboardData`.
 
 ## References
 
-- Reuses `s.publish` (`internal/api/server.go`), the 25 MiB `maxBytes` guard, `render.Bundle`
-  (ADR-0010), the raw serving path, the blob backend (ADR-0006), and the dashboard (`internal/web/`).
+- Reuses `s.publish` (`internal/api/server.go`), the 25 MiB `maxBytes` guard, `render.Prepare`
+  (the egress-aware successor to `render.Bundle`, ADR-0010/ADR-0023), the raw serving path, the blob
+  backend (ADR-0006), and the dashboard (`internal/web/`). Both the CLI and upload paths share
+  `Server.storeArtifact`.
+- Decision recorded in [ADR-0024](../adr/0024-browser-artifact-upload.md) (content-negotiated
+  endpoint, server-decided content-type allowlist, toggle gate, CSRF backstop).
 - Related ADRs: [0008](../adr/0008-separate-content-origin.md) (content origin / sandbox),
   [0013](../adr/0013-artifact-versioning.md) (versions).
-- No new ADR required — additive to the existing publish contract; content-negotiation + the
-  content-type allowlist are captured here.

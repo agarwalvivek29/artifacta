@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -100,6 +101,65 @@ type Server struct {
 	// and is recorded by the Observe middleware. Nil keeps the not-implemented stub
 	// so a bare Server (e.g. in tests) needs no metrics wiring.
 	Metrics *Metrics
+	// Egress reports whether third-party CDN egress is permitted at view time
+	// (ARTIFACTA_CDN_EGRESS=allow). It drives BOTH how artifacts are rendered
+	// (render.Options) AND the served Content-Security-Policy: false (the default,
+	// air-gapped) tightens the CSP to forbid external hosts so the no-egress
+	// posture is actually enforced; true keeps the permissive https: CSP so a
+	// CDN-import artifact renders. See ADR-0023.
+	Egress bool
+	// UploadUI, when true, renders the dashboard "Upload an artifact" form and
+	// accepts the multipart POST /artifacts branch (ADR-0024). Default false keeps
+	// the surface dark; the raw-body CLI publish path is unaffected either way.
+	UploadUI bool
+}
+
+// uploadAllowlist maps a lower-case file extension to the canonical Content-Type
+// the browser-upload path will store. Content type is SERVER-decided from the
+// extension (validated here), never taken from the client's multipart header, so
+// an upload can't assert an active type that would escape the sandbox. Anything
+// not in this map is rejected 415. (ADR-0024, spec 5.)
+var uploadAllowlist = map[string]string{
+	".html": "text/html; charset=utf-8",
+	".htm":  "text/html; charset=utf-8",
+	".pdf":  "application/pdf",
+	".png":  "image/png",
+	".jpg":  "image/jpeg",
+	".jpeg": "image/jpeg",
+	".gif":  "image/gif",
+	".webp": "image/webp",
+	".svg":  "image/svg+xml",
+}
+
+// contentCSP returns the Content-Security-Policy for served artifact bytes,
+// applied to BOTH the viewer shell (whose srcdoc'd artifact inherits it) and the
+// direct /raw document. In deny mode (default) it forbids external hosts — the
+// true air-gap; in allow mode it permits https: so CDN-import artifacts load. In
+// both, `sandbox allow-scripts` keeps the artifact a null origin isolated from
+// the app origin and its cookies. shellExtra carries the directives only the
+// viewer shell needs (frame-src for its srcdoc iframe); it is empty for /raw.
+func (s *Server) contentCSP(includeSandbox bool, shellExtra string) string {
+	var b strings.Builder
+	if includeSandbox {
+		b.WriteString("sandbox allow-scripts; ")
+	}
+	if s.Egress {
+		// Permissive: artifacts may pull styles/scripts/fonts/images/data from
+		// https hosts (deployment is private on ingress, not egress).
+		b.WriteString("default-src 'none'; connect-src 'self' https:; img-src https: data:; " +
+			"font-src https: data:; style-src 'unsafe-inline' https:; script-src 'unsafe-inline' https:")
+	} else {
+		// Air-gap: no external hosts. Self-contained artifacts (bundled JS,
+		// inlined Tailwind/Mermaid, inline styles, data: images) render fully;
+		// anything reaching for a CDN is blocked, enforcing the no-egress posture.
+		b.WriteString("default-src 'none'; connect-src 'self'; img-src 'self' data:; " +
+			"font-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'")
+	}
+	if shellExtra != "" {
+		b.WriteString("; ")
+		b.WriteString(shellExtra)
+	}
+	return b.String()
 }
 
 func (s *Server) Routes() http.Handler {
@@ -237,11 +297,12 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := web.DashboardData{
-		Email:   who.GetEmail(),
-		OrgName: s.OrgName,
-		LogoURL: s.LogoURL,
-		Mine:    toViews(mine),
-		Shared:  toViews(shared),
+		Email:         who.GetEmail(),
+		OrgName:       s.OrgName,
+		LogoURL:       s.LogoURL,
+		Mine:          toViews(mine),
+		Shared:        toViews(shared),
+		UploadEnabled: s.UploadUI,
 	}
 	// Mine artifacts are owned by the caller — mark them so the dashboard shows the
 	// owner-only Share control on those cards.
@@ -311,16 +372,12 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) viewer(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Content-Security-Policy",
-		// The srcdoc'd artifact inherits this policy. Egress is allowed (the
-		// deployment is private on ingress, not egress): artifacts may pull
-		// fonts/styles/scripts/data from https hosts. connect-src 'self' covers
-		// the shell's own fetch of /a/{slug}/raw. frame-src 'self' keeps the
-		// srcdoc iframe. The sandbox (no allow-same-origin) still isolates the
-		// artifact from the app origin and its cookies.
-		"default-src 'none'; connect-src 'self' https:; frame-src 'self'; "+
-			"img-src https: data:; font-src https: data:; "+
-			"style-src 'unsafe-inline' https:; script-src 'unsafe-inline' https:")
+	// The srcdoc'd artifact INHERITS this shell CSP (a srcdoc document takes its
+	// embedder's policy, not the /raw header), so this is where the air-gap
+	// posture is actually enforced for the primary viewing path. frame-src 'self'
+	// keeps the srcdoc/thumbnail iframes; the shell is the app UI so it is not
+	// itself sandboxed. See ADR-0023.
+	w.Header().Set("Content-Security-Policy", s.contentCSP(false, "frame-src 'self'"))
 	_, _ = w.Write([]byte(web.ViewerHTML))
 }
 
@@ -417,12 +474,11 @@ func (s *Server) serveVersion(w http.ResponseWriter, r *http.Request, slug strin
 		ct = "text/html; charset=utf-8"
 	}
 	w.Header().Set("Content-Type", ct)
-	w.Header().Set("Content-Security-Policy",
-		// Egress allowed (private on ingress, not egress); sandbox (no
-		// allow-same-origin) keeps the artifact a null origin, isolated from the
-		// app origin + cookies. Applies when /raw is opened as a document directly.
-		"sandbox allow-scripts; default-src 'none'; img-src https: data:; font-src https: data:; "+
-			"style-src 'unsafe-inline' https:; script-src 'unsafe-inline' https:; connect-src https:")
+	// Applies when /raw is opened as a document directly (thumbnails, direct
+	// links). sandbox (no allow-same-origin) keeps the artifact a null origin,
+	// isolated from the app origin + cookies; the egress posture flag decides
+	// whether external hosts are reachable. See ADR-0023.
+	w.Header().Set("Content-Security-Policy", s.contentCSP(true, ""))
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	_, _ = io.Copy(w, rc)
 }
@@ -447,7 +503,13 @@ func (s *Server) publish(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized) // don't leak anything
 		return
 	}
-	owner := who.GetSub()
+
+	// Browser upload branch (ADR-0024): a multipart/form-data body is the
+	// dashboard upload form. The raw-body path below (CLI, Bearer) is unchanged.
+	if isMultipartForm(r) {
+		s.publishUpload(w, r, who)
+		return
+	}
 
 	title := r.URL.Query().Get("title")
 	if title == "" {
@@ -460,12 +522,10 @@ func (s *Server) publish(w http.ResponseWriter, r *http.Request) {
 
 	slug := domain.NewSlug()
 
-	// Read the body up to the maxBytes ceiling. Unlike the earlier
-	// stream-to-blob path, publish now buffers the payload so the render
-	// pipeline can bundle inline module scripts before storage (FR15,
-	// ADR-0010). Buffering the whole body is acceptable under the 25 MiB cap.
-	// An over-limit body still trips the maxBytes guard on read and surfaces as
-	// a MaxBytesError, which we translate to 413.
+	// Read the body up to the maxBytes ceiling. publish buffers the payload so the
+	// render pipeline can bundle inline module scripts before storage (FR15,
+	// ADR-0010). An over-limit body trips the maxBytes guard on read and surfaces
+	// as a MaxBytesError, which we translate to 413.
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		var mbe *http.MaxBytesError
@@ -479,25 +539,103 @@ func (s *Server) publish(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Render-parity pipeline: bundle inline ES modules into a self-contained
-	// artifact that renders under the strict /raw CSP. Fail-soft — Bundle
-	// returns the original bytes (plus warnings) rather than erroring, so a
-	// publish is never blocked by a bundling problem.
-	bundled, bundledCT, _, _ := render.Bundle(body, ct)
-	ct = bundledCT
+	// Render-parity pipeline (fail-soft): Markdown → self-contained HTML, inline
+	// ES modules bundled, under the egress posture. Never blocks a publish.
+	bundled, bundledCT, _, _ := render.Prepare(body, ct, render.Options{Egress: s.Egress})
 
-	// A new artifact starts at version 1 (ADR-0013).
-	const firstVersion = 1
-	if err := s.Blob.Put(slug, firstVersion, bytes.NewReader(bundled)); err != nil {
-		s.audit(who, slug, artifactav1.AuditAction_AUDIT_ACTION_DENY, false)
+	if err := s.storeArtifact(who, slug, title, bundledCT, bundled); err != nil {
 		http.Error(w, "unavailable", http.StatusInternalServerError)
 		return
 	}
 
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	_ = json.NewEncoder(w).Encode(map[string]string{
+		"slug": slug,
+		"url":  s.BaseURL + "/a/" + slug,
+	})
+}
+
+// publishUpload handles the dashboard's multipart upload form (ADR-0024, spec 5).
+// It is gated by the UploadUI toggle and a same-origin check, accepts a single
+// file of a server-decided allowlisted type, and creates an ordinary
+// private-by-default v1 artifact — identical lifecycle to a CLI publish — then
+// redirects the browser to the new artifact. The raw-body CLI path is untouched.
+func (s *Server) publishUpload(w http.ResponseWriter, r *http.Request, who *artifactav1.Identity) {
+	if !s.UploadUI {
+		http.Error(w, "upload disabled", http.StatusBadRequest)
+		return
+	}
+	// CSRF: a cookie-authed, state-changing browser POST. The session cookie is
+	// already SameSite; additionally require the Origin/Referer (when present) to
+	// match this deployment's host so a cross-site form can't drive an upload.
+	if !s.sameOrigin(r) {
+		http.Error(w, "bad origin", http.StatusForbidden)
+		return
+	}
+
+	f, hdr, err := r.FormFile("file")
+	if err != nil {
+		var mbe *http.MaxBytesError
+		if errors.As(err, &mbe) {
+			http.Error(w, "file too large (max 25 MiB)", http.StatusRequestEntityTooLarge)
+			return
+		}
+		http.Error(w, "no file provided", http.StatusBadRequest)
+		return
+	}
+	defer f.Close()
+
+	// Content type is SERVER-decided from the extension against the allowlist,
+	// never the client's part header — an upload can't assert an active type.
+	ct, ok := uploadContentType(hdr.Filename)
+	if !ok {
+		http.Error(w, "unsupported file type — allowed: HTML, PDF, PNG, JPEG, GIF, WebP, SVG", http.StatusUnsupportedMediaType)
+		return
+	}
+
+	body, err := io.ReadAll(f)
+	if err != nil {
+		var mbe *http.MaxBytesError
+		if errors.As(err, &mbe) {
+			http.Error(w, "file too large (max 25 MiB)", http.StatusRequestEntityTooLarge)
+			return
+		}
+		http.Error(w, "unavailable", http.StatusInternalServerError)
+		return
+	}
+
+	title := strings.TrimSpace(r.FormValue("title"))
+	if title == "" {
+		title = hdr.Filename
+	}
+
+	slug := domain.NewSlug()
+	// HTML runs the render-parity pipeline (fail-soft); non-HTML is stored as-is.
+	bundled, storedCT, _, _ := render.Prepare(body, ct, render.Options{Egress: s.Egress})
+
+	if err := s.storeArtifact(who, slug, title, storedCT, bundled); err != nil {
+		http.Error(w, "unavailable", http.StatusInternalServerError)
+		return
+	}
+	// Full-page form POST → redirect the browser to the new artifact (PRG).
+	http.Redirect(w, r, "/a/"+slug, http.StatusSeeOther)
+}
+
+// storeArtifact persists a rendered artifact as a private v1 owned by who, then
+// audits PUBLISH. Shared by the CLI raw path and the browser upload path so both
+// converge on one storage + audit code path. On any store error it audits DENY
+// and returns the error for the caller to surface as a 500.
+func (s *Server) storeArtifact(who *artifactav1.Identity, slug, title, ct string, bundled []byte) error {
+	const firstVersion = 1
+	if err := s.Blob.Put(slug, firstVersion, bytes.NewReader(bundled)); err != nil {
+		s.audit(who, slug, artifactav1.AuditAction_AUDIT_ACTION_DENY, false)
+		return err
+	}
 	now := timestamppb.Now()
 	art := &artifactav1.Artifact{
 		Slug:          slug,
-		OwnerSub:      owner,
+		OwnerSub:      who.GetSub(),
 		OwnerEmail:    who.GetEmail(), // denormalized for search (ADR-0025); server-derived, never client-asserted
 		Title:         title,
 		Visibility:    artifactav1.Visibility_VISIBILITY_PRIVATE, // private by default
@@ -506,29 +644,54 @@ func (s *Server) publish(w http.ResponseWriter, r *http.Request) {
 		LatestVersion: firstVersion,
 	}
 	if err := s.Store.AddVersion(&artifactav1.ArtifactVersion{
-		Slug:        slug,
-		N:           firstVersion,
-		ContentType: ct,
-		CreatedAt:   now,
-		CreatedBy:   owner,
+		Slug: slug, N: firstVersion, ContentType: ct, CreatedAt: now, CreatedBy: who.GetSub(),
 	}); err != nil {
 		s.audit(who, slug, artifactav1.AuditAction_AUDIT_ACTION_DENY, false)
-		http.Error(w, "unavailable", http.StatusInternalServerError)
-		return
+		return err
 	}
 	if err := s.Store.PutArtifact(art); err != nil {
 		s.audit(who, slug, artifactav1.AuditAction_AUDIT_ACTION_DENY, false)
-		http.Error(w, "unavailable", http.StatusInternalServerError)
-		return
+		return err
 	}
 	s.audit(who, slug, artifactav1.AuditAction_AUDIT_ACTION_PUBLISH, true)
+	return nil
+}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	_ = json.NewEncoder(w).Encode(map[string]string{
-		"slug": slug,
-		"url":  s.BaseURL + "/a/" + slug,
-	})
+// isMultipartForm reports whether the request body is a browser multipart form.
+func isMultipartForm(r *http.Request) bool {
+	return strings.HasPrefix(strings.ToLower(r.Header.Get("Content-Type")), "multipart/form-data")
+}
+
+// uploadContentType maps an uploaded filename to its canonical stored Content-Type
+// via the allowlist, or (,"",false) if the extension is not allowed.
+func uploadContentType(filename string) (string, bool) {
+	ct, ok := uploadAllowlist[strings.ToLower(filepath.Ext(filename))]
+	return ct, ok
+}
+
+// sameOrigin checks the browser POST's Origin/Referer against this deployment's
+// host as a CSRF backstop. A missing Origin AND Referer passes (the SameSite
+// session cookie is the primary defense); a present-but-mismatched one fails.
+func (s *Server) sameOrigin(r *http.Request) bool {
+	expected := hostOf(s.BaseURL)
+	if expected == "" {
+		expected = r.Host
+	}
+	if o := r.Header.Get("Origin"); o != "" {
+		return hostOf(o) == expected
+	}
+	if ref := r.Header.Get("Referer"); ref != "" {
+		return hostOf(ref) == expected
+	}
+	return true
+}
+
+func hostOf(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	return u.Host
 }
 
 // ownedArtifact resolves the artifact at slug for an owner-only mutation. It
@@ -825,8 +988,8 @@ func (s *Server) addVersion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Render-parity bundling, identical to publish (fail-soft).
-	bundled, bundledCT, _, _ := render.Bundle(body, ct)
+	// Render-parity, identical to publish (fail-soft), under the same egress mode.
+	bundled, bundledCT, _, _ := render.Prepare(body, ct, render.Options{Egress: s.Egress})
 	ct = bundledCT
 
 	n := art.GetLatestVersion() + 1

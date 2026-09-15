@@ -25,6 +25,18 @@ type Config struct {
 	// is the wordmark beside it. Both empty falls back to the ArtifactA wordmark.
 	OrgName string `json:"org_name"`
 	LogoURL string `json:"logo_url"`
+	// CDNEgress selects the render/serve posture (ARTIFACTA_CDN_EGRESS=allow|deny,
+	// ADR-0023). false (default, "deny") is air-gapped: artifacts are bundled
+	// self-contained at publish and served under a strict no-external-hosts CSP.
+	// true ("allow") keeps import maps and a permissive https: CSP so artifacts
+	// resolve any dependency from a CDN at view time. The default is deny to match
+	// the product's no-third-party-egress posture (ADR-0010/0011).
+	CDNEgress bool `json:"cdn_egress"`
+	// UploadUI enables the browser "Upload an artifact" form on the dashboard
+	// (ARTIFACTA_UPLOAD_UI, default false, ADR-0024). Off = the form isn't
+	// rendered and the multipart POST /artifacts branch is refused; the raw-body
+	// CLI publish path is unaffected either way. Dark-launched per deployment.
+	UploadUI bool `json:"upload_ui"`
 	// StoreBackend selects the metadata store: "file" (default; JSON on local disk,
 	// zero dependencies, single-instance) or "postgres" (ADR-0009; horizontally
 	// scalable, uniqueness enforced by the DB). DatabaseURL is the postgres DSN,
@@ -137,6 +149,13 @@ func applyEnv(c *Config) {
 	setFromEnv("ARTIFACTA_ROOT_DOMAIN", &c.RootDomain)
 	setFromEnv("ARTIFACTA_ORG_NAME", &c.OrgName)
 	setFromEnv("ARTIFACTA_LOGO_URL", &c.LogoURL)
+	// ARTIFACTA_CDN_EGRESS is worded allow|deny (not a bare bool): "allow" opts
+	// into CDN egress; anything else (incl. "deny" and the unset default) is
+	// air-gapped. Only override when the var is set so a config.json value stands.
+	if v := os.Getenv("ARTIFACTA_CDN_EGRESS"); v != "" {
+		c.CDNEgress = strings.EqualFold(v, "allow")
+	}
+	setBoolFromEnv("ARTIFACTA_UPLOAD_UI", &c.UploadUI)
 	setFromEnv("ARTIFACTA_STORE", &c.StoreBackend)
 	setFromEnv("ARTIFACTA_DATABASE_URL", &c.DatabaseURL)
 	setFromEnv("ARTIFACTA_BLOB", &c.BlobBackend)

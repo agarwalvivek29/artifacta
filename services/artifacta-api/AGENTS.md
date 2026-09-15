@@ -61,11 +61,12 @@ See `.env.example` for all required variables.
 
 Key variables:
 
-| Variable       | Description                  | Example            |
-| -------------- | ---------------------------- | ------------------ |
-| `PORT`         | HTTP server port             | `3000`             |
-| `DATABASE_URL` | PostgreSQL connection string | `postgresql://...` |
-| [Add more]     |                              |                    |
+| Variable               | Description                                                                                                                       | Example            |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------- | ------------------ |
+| `PORT`                 | HTTP server port                                                                                                                  | `3000`             |
+| `DATABASE_URL`         | PostgreSQL connection string                                                                                                      | `postgresql://...` |
+| `ARTIFACTA_CDN_EGRESS` | Render/serve posture: `deny` (default, air-gapped — bundle deps, strict CSP) or `allow` (keep import maps, permissive https: CSP) | `deny`             |
+| [Add more]             |                                                                                                                                   |                    |
 
 ---
 
@@ -278,7 +279,30 @@ Agents working on this service may:
 - [ADR 0006](../../docs/adr/0006-s3-blob-adapter-backend-only.md) — S3-compatible blob adapter, backend-only (no presigned URLs)
 - [ADR 0013](../../docs/adr/0013-artifact-versioning.md) — Artifact versioning (immutable versions, explicit update)
 - [ADR 0022](../../docs/adr/0022-observability-and-server-lifecycle.md) — Server timeouts + graceful shutdown, `slog` request logs, Prometheus `/metrics`
+- [ADR 0023](../../docs/adr/0023-flag-based-render-egress-and-multiformat.md) — Flag-based render egress + React/Markdown/Mermaid/SVG parity
 - [ADR 0025](../../docs/adr/0025-artifact-search-and-pagination.md) — Artifact search + page-based pagination; `Store.SearchArtifacts` (SQL pushdown); persist `owner_email`
+
+---
+
+## Render pipeline (`internal/render`)
+
+Publish-time `render.Prepare(bytes, contentType, Options{Egress})` dispatches on content type and
+governs render parity (ADR-0010, ADR-0023):
+
+- **Markdown** (`text/markdown`) → goldmark (GFM) self-contained HTML, stored as `text/html`; fenced
+  `mermaid` blocks inline the vendored Mermaid runtime.
+- **HTML** — air-gap (`Egress=false`, default): esbuild bundles the inline module with vendored deps
+  (React 18.3.1 family) served **in-memory** from `go:embed` via an `OnResolve`/`OnLoad` plugin
+  (`deps.go`) — no temp dir, so it works on a read-only/distroless rootfs; a Tailwind Play-CDN
+  `<script src>` is replaced by the vendored compiler. Egress (`Egress=true`): transpile only, keep
+  imports + import map + Tailwind CDN.
+- **SVG / other** → passthrough with correct content type (rendered on direct `/raw`).
+
+`ARTIFACTA_CDN_EGRESS` (below) selects the posture AND the served CSP (`Server.contentCSP`, applied to
+both the viewer shell and `/raw`). **Gotcha**: render mode is baked into stored bytes at publish while
+CSP derives from the current flag — flipping the flag mismatches already-published artifacts (see
+ADR-0023 "known limitations"). Vendored assets live in `internal/render/vendor/` and are committed
+(un-ignored from the generic `vendor/` rule) because `go:embed` needs them; never lint/format them.
 
 ---
 
@@ -311,4 +335,5 @@ Agents working on this service may:
 | 2026-09-11 | Ops hardening (ADR-0022): server timeouts + graceful shutdown; `slog` JSON request logs + real Prometheus `/metrics`; `artifacta healthcheck`; `infra/docker-compose.prod.yml`; serve fails loud on empty local token.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | Vivek Agarwal |
 | 2026-09-11 | CLI ↔ UI parity (spec 6, no server/proto change): new `artifacta visibility` / `unshare` / `label` / `comment add\|ls\|resolve` commands over existing endpoints (ADR-0014/0016/0017/0018/0019); `share` now auto-detects invite-by-email. **Behavior change:** `share` is now remote-only (its local-dev store path was removed) so the whole sharing surface is symmetric; local dev keeps `publish`/`ls`.                                                                                                                                                                                                                                                                                                           | Vivek Agarwal |
 | 2026-09-11 | Bug-fix batch (no proto change): (1) owner **Share** button in the viewer chrome — reuses the dashboard dialog; metadata now returns owner-only `owner_email`. (2) `healthcheck [url]` probes the logged-in remote / an explicit URL, not just loopback. (3) new owner-scoped `GET /audit` + remote `audit verify` — the CLI verifies its own rows' per-row integrity client-side (full-chain continuity stays a server-host check). (4) `visibility` accepts `public` as an alias for `link` (still VPN-gated; canonical name unchanged); the 400 now lists valid values.                                                                                                                                             | Vivek Agarwal |
+| 2026-09-11 | Render parity (ADR-0023, spec 7): React/JSX (vendored React 18, in-memory esbuild resolution), Markdown+Mermaid → self-contained HTML, vendored Tailwind, SVG/multi-type publish; `ARTIFACTA_CDN_EGRESS=allow\|deny` (default deny) gates render strategy + CSP on both the viewer-shell and `/raw`.                                                                                                                                                                                                                                                                                                                                                                                                                   | Vivek Agarwal |
 | 2026-09-15 | Artifact search + pagination (spec 9, ADR-0025): `GET /artifacts/search` over the caller's visible set (owned ∪ shared ∪ org), filtering by `q` (title/slug/label), `email`, and `visibility`, page-based via `common/v1`. New `Store.SearchArtifacts` — SQL pushdown in Postgres (indexed `owner_email` column, jsonb title match), in-memory in FileStore via the pure `domain.SearchArtifacts` (parity-tested in the store conformance suite). New proto: `Artifact.owner_email`, `ArtifactSummary`, `SearchArtifactsResponse`; `publish` now captures `owner_email`. Grantee-email matching is scoped to the caller's OWN artifacts (no foreign share-list enumeration); results are a strict subset of `CanView`. | Vivek Agarwal |

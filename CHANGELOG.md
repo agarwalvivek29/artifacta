@@ -2,6 +2,48 @@
 
 All notable changes to ArtifactA are documented here. Versions follow [SemVer](https://semver.org).
 
+## 0.0.10 — 2026-09-11
+
+### Added
+
+- **Upload an artifact from the browser** (ADR-0024, spec 5), behind `ARTIFACTA_UPLOAD_UI` (default
+  off). A floating **Upload** button on the dashboard opens a dialog where a signed-in user picks a
+  file — HTML, PDF, or an image (PNG/JPEG/GIF/WebP/SVG), up to 25 MiB — and hosts it as an ordinary
+  private-by-default, versioned artifact.
+  It content-negotiates the existing `POST /artifacts` (multipart for the browser, raw body for the
+  CLI — unchanged), decides the content type server-side against an allowlist (never the client's
+  header), runs HTML through the same `render.Prepare` pipeline, and serves it through the same
+  `CanView`-gated, sandboxed path. A same-origin check backstops the SameSite session cookie against
+  CSRF. Off by default keeps the surface dark until an operator opts in.
+
+### Docs
+
+- Roadmap spec for **multi-file artifacts** (entry document + sibling assets) — the next hosting
+  capability, scoped as its own multi-week initiative (storage + schema + srcdoc-viewer rework).
+
+## 0.0.9 — 2026-09-11
+
+### Added
+
+- **Render parity: React/JSX, Markdown, Mermaid, SVG** (ADR-0023, spec 7). The publish-time render
+  pipeline now handles the artifact types AI assistants actually emit. React/JSX transpiles and, in
+  the default air-gapped mode, bundles its dependencies (vendored React 18 + Tailwind) into a
+  self-contained document resolved fully in-memory — no temp dir, so it works on a read-only /
+  distroless rootfs. Markdown renders to styled HTML with GFM; fenced ` ```mermaid ` blocks render via
+  an inlined runtime. SVG and other file types publish with the correct content type.
+- **`ARTIFACTA_CDN_EGRESS=allow|deny` posture flag** (default `deny`). It gates BOTH the render
+  strategy and the served Content-Security-Policy — on the viewer shell (which a srcdoc'd artifact
+  inherits) and `/raw`. `deny` bundles everything self-contained and forbids external hosts (true
+  air-gap: an artifact cannot even `fetch` out); `allow` keeps import maps and a permissive `https:`
+  CSP so an artifact resolves any dependency from a CDN at view time.
+- **CLI content-type detection.** `artifacta publish` derives an artifact's content type from the
+  file extension (was hardcoded `text/html`), so Markdown / SVG / JSON publish correctly.
+
+### Fixed
+
+- Tailwind inlining used regexp `ReplaceAll`, whose `$`-expansion corrupted the minified bundle and
+  could break it out of its `<script>`; it now splices by byte index (caught in browser QA).
+
 ## 0.0.8 — 2026-09-11
 
 ### Added

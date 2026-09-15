@@ -553,3 +553,52 @@ func TestSetVisibilityRemoteErrorsOnNon200(t *testing.T) {
 		t.Fatalf("setVisibilityRemote: expected error on 404, got nil")
 	}
 }
+
+// TestContentTypeForPath pins the extension→Content-Type derivation. The
+// override table must be authoritative for the types this feature cares about
+// (markdown, svg) since the distroless prod image has no /etc/mime.types, and an
+// unknown/extension-less path must keep the historical text/html default.
+func TestContentTypeForPath(t *testing.T) {
+	cases := map[string]string{
+		"index.html":      "text/html; charset=utf-8",
+		"page.HTM":        "text/html; charset=utf-8",
+		"notes.md":        "text/markdown; charset=utf-8",
+		"README.markdown": "text/markdown; charset=utf-8",
+		"logo.svg":        "image/svg+xml",
+		"data.json":       "application/json",
+		"table.csv":       "text/csv; charset=utf-8",
+		"pic.png":         "image/png",
+		"scan.pdf":        "application/pdf",
+		"noext":           "text/html; charset=utf-8", // extension-less → HTML default
+	}
+	for path, want := range cases {
+		if got := contentTypeForPath(path); got != want {
+			t.Errorf("contentTypeForPath(%q) = %q, want %q", path, got, want)
+		}
+	}
+}
+
+// TestPublishRemoteSendsDerivedContentType confirms the remote publish path
+// labels a non-HTML file with its derived Content-Type (the API stores this),
+// not the old hardcoded text/html.
+func TestPublishRemoteSendsDerivedContentType(t *testing.T) {
+	var gotCT string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotCT = r.Header.Get("Content-Type")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(map[string]string{"slug": "s", "url": "u"})
+	}))
+	defer srv.Close()
+
+	path := filepath.Join(t.TempDir(), "diagram.svg")
+	if err := os.WriteFile(path, []byte("<svg/>"), 0o600); err != nil {
+		t.Fatalf("write temp file: %v", err)
+	}
+	if _, err := publishRemote(srv.URL, "tok", path); err != nil {
+		t.Fatalf("publishRemote: %v", err)
+	}
+	if gotCT != "image/svg+xml" {
+		t.Fatalf("Content-Type = %q, want image/svg+xml", gotCT)
+	}
+}

@@ -2,6 +2,39 @@
 
 All notable changes to ArtifactA are documented here. Versions follow [SemVer](https://semver.org).
 
+## 0.0.11 — 2026-09-15
+
+### Added
+
+- **Artifact search** (ADR-0025, spec 9): `GET /artifacts/search` searches everything the caller can
+  see (their own artifacts, ones shared with them, and org-visible ones), filtering by free text
+  (title / slug / custom label), by an email tied to the artifact, and by visibility — with
+  page-based pagination (`page` / `page_size` / `sort_by` / `sort_order`, reusing the shared
+  `common/v1` pagination types). Results are always a strict subset of what the viewer can already
+  open, deduped by slug, ordered deterministically for stable paging.
+- **`Artifact.owner_email`** persisted at publish (server-derived from the authenticated identity),
+  so "shared with me by `alice@x.com`" is answerable. It is display/search metadata only — grants
+  still bind to the immutable subject and `CanView` never consults it.
+
+### Security
+
+- The `email` filter matches an artifact's `owner_email` across the visible set, but a **grantee's**
+  email is matched only on artifacts the caller **owns** — a viewer can never probe or enumerate the
+  share-list of an org artifact they don't own.
+
+### Internal
+
+- New `Store.SearchArtifacts` on both backends: SQL pushdown in Postgres (indexed `owner_email`
+  column, jsonb `title` match, `COUNT` + `LIMIT/OFFSET`), in-memory in the file store via a shared
+  pure `domain.SearchArtifacts`. The store-conformance suite runs both, verifying identical results.
+
+### Notes
+
+- `owner_email` is a denormalized snapshot: empty on artifacts published before this release (no
+  subject→email directory to backfill from) and not refreshed if a user's email later changes, so the
+  email filter can under-return on old or renamed rows. Existing `GET /artifacts` and the dashboard
+  are unchanged (still unpaginated); search is the paginated surface.
+
 ## 0.0.10 — 2026-09-11
 
 ### Added

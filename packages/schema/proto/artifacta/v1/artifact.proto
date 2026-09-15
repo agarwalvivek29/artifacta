@@ -54,6 +54,14 @@ message Artifact {
   // globally unique and drawn from a restricted charset (see domain.ValidLabel).
   // Empty means no custom label — the slug subdomain (and the /a/{slug} path) still work.
   string label = 8;
+  // owner_email is the owner's verified email captured at publish from the
+  // authenticated identity (server-derived, never client-asserted). It powers
+  // "search by the person who published/shared this" — grants are owner-only, so
+  // the sharer of any artifact is always its owner. It is display/search metadata
+  // ONLY: grants bind to owner_sub (ADR-0002) and CanView never consults it. It is
+  // a denormalized snapshot: empty on artifacts published before this field
+  // existed, and not refreshed if the user's email later changes (ADR-0025).
+  string owner_email = 9;
 }
 
 // ArtifactVersion is one immutable revision of an artifact's bundle. Versions are

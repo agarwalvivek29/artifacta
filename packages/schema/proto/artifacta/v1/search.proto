@@ -1,0 +1,41 @@
+syntax = "proto3";
+
+package artifacta.v1;
+
+import "google/protobuf/timestamp.proto";
+import "common/v1/pagination.proto";
+
+option go_package = "github.com/agarwalvivek29/here.now/packages/schema/generated/go/artifacta/v1;artifactav1";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Artifact search (ADR-0025). Response shapes for GET /artifacts/search.
+// Schema-first (Rule 12): the search row + response envelope are defined here,
+// not hand-rolled in service code. Pagination reuses common/v1 (do not redefine).
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ArtifactSummary is one row in a search result: the artifact metadata the
+// dashboard/list surfaces, plus an absolute viewer URL. It is a projection of
+// Artifact (not the full record) — no bundle bytes, no grant list.
+message ArtifactSummary {
+  string slug = 1;
+  string title = 2;
+  // visibility is the lower-case wire label ("private"|"invited"|"org"|"link"),
+  // matching GET /artifacts and the set-visibility endpoint.
+  string visibility = 3;
+  int32 latest_version = 4;
+  // url is the absolute canonical viewer link (BaseURL + /a/{slug}).
+  string url = 5;
+  // label is the custom subdomain label, empty when none (ADR-0017).
+  string label = 6;
+  // owner_email is the publisher's email (may be empty for pre-ADR-0025
+  // artifacts). Returned on every row (accepted org-wide disclosure, ADR-0025).
+  string owner_email = 7;
+  google.protobuf.Timestamp created_at = 8;
+}
+
+// SearchArtifactsResponse is the GET /artifacts/search body: one page of matching
+// rows plus the pagination meta describing the full result set.
+message SearchArtifactsResponse {
+  repeated ArtifactSummary items = 1;
+  common.v1.PaginationMeta page = 2;
+}

@@ -158,7 +158,15 @@ type Artifact struct {
 	// reachable at its slug subdomain https://{slug}.{root-domain}. Labels are
 	// globally unique and drawn from a restricted charset (see domain.ValidLabel).
 	// Empty means no custom label — the slug subdomain (and the /a/{slug} path) still work.
-	Label         string `protobuf:"bytes,8,opt,name=label,proto3" json:"label,omitempty"`
+	Label string `protobuf:"bytes,8,opt,name=label,proto3" json:"label,omitempty"`
+	// owner_email is the owner's verified email captured at publish from the
+	// authenticated identity (server-derived, never client-asserted). It powers
+	// "search by the person who published/shared this" — grants are owner-only, so
+	// the sharer of any artifact is always its owner. It is display/search metadata
+	// ONLY: grants bind to owner_sub (ADR-0002) and CanView never consults it. It is
+	// a denormalized snapshot: empty on artifacts published before this field
+	// existed, and not refreshed if the user's email later changes (ADR-0025).
+	OwnerEmail    string `protobuf:"bytes,9,opt,name=owner_email,json=ownerEmail,proto3" json:"owner_email,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -245,6 +253,13 @@ func (x *Artifact) GetLatestVersion() int32 {
 func (x *Artifact) GetLabel() string {
 	if x != nil {
 		return x.Label
+	}
+	return ""
+}
+
+func (x *Artifact) GetOwnerEmail() string {
+	if x != nil {
+		return x.OwnerEmail
 	}
 	return ""
 }
@@ -636,7 +651,7 @@ const file_artifacta_v1_artifact_proto_rawDesc = "" +
 	"\x1bartifacta/v1/artifact.proto\x12\fartifacta.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"2\n" +
 	"\bIdentity\x12\x10\n" +
 	"\x03sub\x18\x01 \x01(\tR\x03sub\x12\x14\n" +
-	"\x05email\x18\x02 \x01(\tR\x05email\"\xa6\x02\n" +
+	"\x05email\x18\x02 \x01(\tR\x05email\"\xc7\x02\n" +
 	"\bArtifact\x12\x12\n" +
 	"\x04slug\x18\x01 \x01(\tR\x04slug\x12\x1b\n" +
 	"\towner_sub\x18\x02 \x01(\tR\bownerSub\x12\x14\n" +
@@ -648,7 +663,9 @@ const file_artifacta_v1_artifact_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12%\n" +
 	"\x0elatest_version\x18\a \x01(\x05R\rlatestVersion\x12\x14\n" +
-	"\x05label\x18\b \x01(\tR\x05label\"\xc4\x01\n" +
+	"\x05label\x18\b \x01(\tR\x05label\x12\x1f\n" +
+	"\vowner_email\x18\t \x01(\tR\n" +
+	"ownerEmail\"\xc4\x01\n" +
 	"\x0fArtifactVersion\x12\x12\n" +
 	"\x04slug\x18\x01 \x01(\tR\x04slug\x12\f\n" +
 	"\x01n\x18\x02 \x01(\x05R\x01n\x12!\n" +

@@ -13,6 +13,7 @@ import (
 	"sync"
 
 	artifactav1 "github.com/agarwalvivek29/here.now/packages/schema/generated/go/artifacta/v1"
+	"github.com/agarwalvivek29/here.now/services/artifacta-api/internal/domain"
 	"google.golang.org/protobuf/encoding/protojson"
 )
 
@@ -237,6 +238,61 @@ func (s *FileStore) ListByVisibility(v artifactav1.Visibility) ([]*artifactav1.A
 		}
 	}
 	return out, nil
+}
+
+// SearchArtifacts (ADR-0025) computes the caller's visible set in memory —
+// owned ∪ shared-with-me (by grantee_sub OR grantee_email) ∪ org — then delegates
+// filtering, sorting, and pagination to the pure domain.SearchArtifacts so this
+// backend and the SQL backend share one reference semantics (conformance parity).
+// Grantee-email matching is scoped to the viewer's OWN artifacts: ownGrantsBySlug
+// is built only from grants on slugs the caller owns, so a foreign share-list is
+// never matched or enumerated.
+func (s *FileStore) SearchArtifacts(q domain.SearchQuery) ([]*artifactav1.Artifact, int, error) {
+	s.mu.Lock()
+	// Slugs shared with the viewer, by subject OR (verified) email — the same
+	// union arm CanView admits, so "shared with me by email" is searchable even
+	// before the invitee's sub is known (ADR-0019).
+	granted := map[string]struct{}{}
+	for _, g := range s.grants {
+		if g.GetGranteeSub() != "" && g.GetGranteeSub() == q.ViewerSub {
+			granted[g.GetSlug()] = struct{}{}
+			continue
+		}
+		if q.ViewerEmail != "" && g.GetGranteeEmail() != "" && strings.EqualFold(g.GetGranteeEmail(), q.ViewerEmail) {
+			granted[g.GetSlug()] = struct{}{}
+		}
+	}
+
+	// Mirror CanView exactly so search results are a strict subset of what the
+	// caller can open: owner (any visibility), ORG, or a grant that actually grants
+	// view — i.e. the artifact is INVITED (a grant on a PRIVATE/LINK artifact does
+	// not admit the grantee, so it must not surface here either).
+	visible := make([]*artifactav1.Artifact, 0, len(s.arts))
+	for slug, a := range s.arts {
+		_, isGranted := granted[slug]
+		switch {
+		case a.GetOwnerSub() == q.ViewerSub,
+			a.GetVisibility() == artifactav1.Visibility_VISIBILITY_ORG,
+			isGranted && a.GetVisibility() == artifactav1.Visibility_VISIBILITY_INVITED:
+			visible = append(visible, a)
+		}
+	}
+
+	// Only load grants for the email filter, and only for the viewer's OWN
+	// artifacts — never a share-list the caller doesn't own.
+	var ownGrantsBySlug map[string][]*artifactav1.Grant
+	if q.Email != "" {
+		ownGrantsBySlug = map[string][]*artifactav1.Grant{}
+		for _, g := range s.grants {
+			if a, ok := s.arts[g.GetSlug()]; ok && a.GetOwnerSub() == q.ViewerSub {
+				ownGrantsBySlug[g.GetSlug()] = append(ownGrantsBySlug[g.GetSlug()], g)
+			}
+		}
+	}
+	s.mu.Unlock()
+
+	items, total := domain.SearchArtifacts(visible, ownGrantsBySlug, q)
+	return items, total, nil
 }
 
 func (s *FileStore) AddGrant(g *artifactav1.Grant) error {

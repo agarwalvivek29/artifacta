@@ -20,6 +20,7 @@ import (
 	"unicode/utf8"
 
 	artifactav1 "github.com/agarwalvivek29/here.now/packages/schema/generated/go/artifacta/v1"
+	commonv1 "github.com/agarwalvivek29/here.now/packages/schema/generated/go/common/v1"
 	"github.com/agarwalvivek29/here.now/services/artifacta-api/internal/domain"
 	"github.com/agarwalvivek29/here.now/services/artifacta-api/internal/render"
 	"github.com/agarwalvivek29/here.now/services/artifacta-api/internal/web"
@@ -51,6 +52,12 @@ type Store interface {
 	ListByOwner(sub string) ([]*artifactav1.Artifact, error)
 	ListByGrantee(sub string) ([]*artifactav1.Artifact, error)
 	ListByVisibility(v artifactav1.Visibility) ([]*artifactav1.Artifact, error)
+	// SearchArtifacts (ADR-0025) returns one page of the caller's visible set
+	// (owned ∪ shared-with-me ∪ org, deduped) matching q, plus the total match
+	// count. Visibility is enforced in the query — results are always a subset of
+	// what CanView permits — and grantee emails are matched only on the viewer's
+	// own artifacts, never a foreign share-list.
+	SearchArtifacts(q domain.SearchQuery) (items []*artifactav1.Artifact, total int, err error)
 	// Custom subdomain labels (ADR-0017): claim a globally-unique label for a
 	// slug (false = already taken / no such artifact) and resolve label → slug.
 	SetLabel(slug, label string) (bool, error)
@@ -152,6 +159,10 @@ func (s *Server) Routes() http.Handler {
 	// Caller's own artifacts (powers remote `artifacta ls`) and the authenticated
 	// identity probe (powers `artifacta doctor` / `whoami`). Both fail closed 401.
 	mux.Handle("GET /artifacts", rateLimit(http.HandlerFunc(s.listArtifacts), contentPerMinute))
+	// Paginated search over the caller's visible set (ADR-0025). The literal path
+	// takes precedence over GET /artifacts/{slug} in the Go 1.22 mux, so it never
+	// shadows the metadata route. Fail-closed 401.
+	mux.Handle("GET /artifacts/search", rateLimit(http.HandlerFunc(s.searchArtifacts), contentPerMinute))
 	mux.Handle("GET /me", rateLimit(http.HandlerFunc(s.me), contentPerMinute))
 	// Audit (remote `artifacta audit verify`): the caller's OWN audit rows so they
 	// can verify per-row integrity client-side. Owner-scoped, fail-closed 401.
@@ -487,6 +498,7 @@ func (s *Server) publish(w http.ResponseWriter, r *http.Request) {
 	art := &artifactav1.Artifact{
 		Slug:          slug,
 		OwnerSub:      owner,
+		OwnerEmail:    who.GetEmail(), // denormalized for search (ADR-0025); server-derived, never client-asserted
 		Title:         title,
 		Visibility:    artifactav1.Visibility_VISIBILITY_PRIVATE, // private by default
 		ContentType:   ct,
@@ -603,6 +615,111 @@ func (s *Server) listArtifacts(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(out)
+}
+
+// searchArtifacts backs GET /artifacts/search (ADR-0025): a paginated, filtered
+// view over the caller's visible set (owned ∪ shared-with-me ∪ org). Fail-closed
+// 401. Visibility is enforced in the store query, so results are always a subset
+// of what CanView permits; grantee-email matching is scoped to the caller's own
+// artifacts, never a foreign share-list.
+func (s *Server) searchArtifacts(w http.ResponseWriter, r *http.Request) {
+	who, ok := s.Auth.Identify(r)
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	qv := r.URL.Query()
+
+	var vis *artifactav1.Visibility
+	if v := qv.Get("visibility"); v != "" {
+		parsed, valid := parseVisibility(v)
+		if !valid {
+			http.Error(w, "invalid visibility", http.StatusBadRequest)
+			return
+		}
+		vis = &parsed
+	}
+
+	// sort_order defaults to descending (newest/last first) — the useful default
+	// for a created_at sort. An explicit "asc" flips it.
+	sortDesc := qv.Get("sort_order") != "asc"
+
+	q := domain.SearchQuery{
+		ViewerSub:   who.GetSub(),
+		ViewerEmail: who.GetEmail(),
+		Text:        qv.Get("q"),
+		Email:       qv.Get("email"),
+		Visibility:  vis,
+		Page:        atoiDefault(qv.Get("page"), 0),
+		PageSize:    atoiDefault(qv.Get("page_size"), 0),
+		SortBy:      qv.Get("sort_by"),
+		SortDesc:    sortDesc,
+	}
+	q.Normalize()
+
+	arts, total, err := s.Store.SearchArtifacts(q)
+	if err != nil {
+		http.Error(w, "unavailable", http.StatusInternalServerError)
+		return
+	}
+
+	resp := &artifactav1.SearchArtifactsResponse{
+		Items: make([]*artifactav1.ArtifactSummary, 0, len(arts)),
+		Page:  pageMeta(q.Page, q.PageSize, total),
+	}
+	for _, a := range arts {
+		resp.Items = append(resp.Items, &artifactav1.ArtifactSummary{
+			Slug:          a.GetSlug(),
+			Title:         a.GetTitle(),
+			Visibility:    visibilityLabel(a.GetVisibility()),
+			LatestVersion: a.GetLatestVersion(),
+			Url:           s.BaseURL + "/a/" + a.GetSlug(),
+			Label:         a.GetLabel(),
+			OwnerEmail:    a.GetOwnerEmail(),
+			CreatedAt:     a.GetCreatedAt(),
+		})
+	}
+
+	// EmitUnpopulated keeps the pagination meta (and empty items array) fully
+	// present so clients get a stable shape; UseProtoNames keeps snake_case field
+	// names consistent with the other JSON endpoints.
+	body, err := (protojson.MarshalOptions{EmitUnpopulated: true, UseProtoNames: true}).Marshal(resp)
+	if err != nil {
+		http.Error(w, "unavailable", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write(body)
+}
+
+// pageMeta builds the common.v1 pagination meta for a result set of `total` items
+// windowed at (page, pageSize). total_pages is ceil(total/pageSize).
+func pageMeta(page, pageSize int32, total int) *commonv1.PaginationMeta {
+	var totalPages int32
+	if pageSize > 0 {
+		totalPages = int32((total + int(pageSize) - 1) / int(pageSize))
+	}
+	return &commonv1.PaginationMeta{
+		Page:       page,
+		PageSize:   pageSize,
+		Total:      int32(total),
+		TotalPages: totalPages,
+		HasNext:    page < totalPages,
+		HasPrev:    page > 1,
+	}
+}
+
+// atoiDefault parses s as a base-10 int32, returning def when s is empty or
+// invalid. Range/clamping is the caller's job (SearchQuery.Normalize).
+func atoiDefault(s string, def int32) int32 {
+	if s == "" {
+		return def
+	}
+	n, err := strconv.Atoi(s)
+	if err != nil {
+		return def
+	}
+	return int32(n)
 }
 
 // auditEvents backs GET /audit: the caller's OWN audit rows — events where the

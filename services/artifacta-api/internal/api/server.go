@@ -344,6 +344,8 @@ func toView(a *artifactav1.Artifact) web.ArtifactView {
 		Version:     a.GetLatestVersion(),
 		Created:     created,
 		ContentType: a.GetContentType(),
+		Description: a.GetDescription(),
+		OwnerEmail:  a.GetOwnerEmail(),
 	}
 }
 
@@ -521,6 +523,7 @@ func (s *Server) publish(w http.ResponseWriter, r *http.Request) {
 	if title == "" {
 		title = "untitled"
 	}
+	description := r.URL.Query().Get("description") // optional publisher metadata (ADR-0025)
 	ct := r.Header.Get("Content-Type")
 	if ct == "" {
 		ct = "text/html; charset=utf-8"
@@ -549,7 +552,7 @@ func (s *Server) publish(w http.ResponseWriter, r *http.Request) {
 	// ES modules bundled, under the egress posture. Never blocks a publish.
 	bundled, bundledCT, _, _ := render.Prepare(body, ct, render.Options{Egress: s.Egress})
 
-	if err := s.storeArtifact(who, slug, title, bundledCT, bundled); err != nil {
+	if err := s.storeArtifact(who, slug, title, description, bundledCT, bundled); err != nil {
 		http.Error(w, "unavailable", http.StatusInternalServerError)
 		return
 	}
@@ -615,12 +618,13 @@ func (s *Server) publishUpload(w http.ResponseWriter, r *http.Request, who *arti
 	if title == "" {
 		title = hdr.Filename
 	}
+	description := strings.TrimSpace(r.FormValue("description")) // optional (ADR-0025)
 
 	slug := domain.NewSlug()
 	// HTML runs the render-parity pipeline (fail-soft); non-HTML is stored as-is.
 	bundled, storedCT, _, _ := render.Prepare(body, ct, render.Options{Egress: s.Egress})
 
-	if err := s.storeArtifact(who, slug, title, storedCT, bundled); err != nil {
+	if err := s.storeArtifact(who, slug, title, description, storedCT, bundled); err != nil {
 		http.Error(w, "unavailable", http.StatusInternalServerError)
 		return
 	}
@@ -632,7 +636,7 @@ func (s *Server) publishUpload(w http.ResponseWriter, r *http.Request, who *arti
 // audits PUBLISH. Shared by the CLI raw path and the browser upload path so both
 // converge on one storage + audit code path. On any store error it audits DENY
 // and returns the error for the caller to surface as a 500.
-func (s *Server) storeArtifact(who *artifactav1.Identity, slug, title, ct string, bundled []byte) error {
+func (s *Server) storeArtifact(who *artifactav1.Identity, slug, title, description, ct string, bundled []byte) error {
 	const firstVersion = 1
 	if err := s.Blob.Put(slug, firstVersion, bytes.NewReader(bundled)); err != nil {
 		s.audit(who, slug, artifactav1.AuditAction_AUDIT_ACTION_DENY, false)
@@ -644,6 +648,7 @@ func (s *Server) storeArtifact(who *artifactav1.Identity, slug, title, ct string
 		OwnerSub:      who.GetSub(),
 		OwnerEmail:    who.GetEmail(), // denormalized for search (ADR-0025); server-derived, never client-asserted
 		Title:         title,
+		Description:   description,                               // optional publisher metadata, searchable (ADR-0025)
 		Visibility:    artifactav1.Visibility_VISIBILITY_PRIVATE, // private by default
 		ContentType:   ct,
 		CreatedAt:     now,
@@ -846,6 +851,7 @@ func (s *Server) searchArtifacts(w http.ResponseWriter, r *http.Request) {
 			Label:         a.GetLabel(),
 			OwnerEmail:    a.GetOwnerEmail(),
 			CreatedAt:     a.GetCreatedAt(),
+			Description:   a.GetDescription(),
 		})
 	}
 
@@ -1114,6 +1120,7 @@ func (s *Server) metadata(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"slug":           art.GetSlug(),
 		"title":          art.GetTitle(),
+		"description":    art.GetDescription(),
 		"visibility":     visibilityLabel(art.GetVisibility()),
 		"latest_version": art.GetLatestVersion(),
 		"is_owner":       isOwner,

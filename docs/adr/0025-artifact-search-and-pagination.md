@@ -112,3 +112,9 @@ Two constraints forced real decisions:
 - `publish` sets `owner_email = who.GetEmail()`. Handler `GET /artifacts/search` fails closed (401),
   rate-limited like other content routes.
 - Tests: domain unit, handler unit (incl. the grant-leak regression), store conformance parity, e2e.
+
+**Follow-up (0.0.13):** added an optional `Artifact.description` — free-text publisher
+metadata included in the `q` substring match (both store paths) so an agent can find a past
+artifact by more than its title. Captured via `POST /artifacts?description=`, the upload form, and
+`artifacta publish --description`; returned by metadata + search; shown as a dashboard subtitle.
+Like `owner_email` it is display/search metadata only — never consulted by `CanView`.

@@ -105,7 +105,9 @@ tok() { # username password → id_token
 }
 sub_of() { python3 -c 'import sys,base64,json; p=sys.argv[1].split(".")[1]; p+="="*(-len(p)%4); print(json.loads(base64.urlsafe_b64decode(p))["sub"])' "$1"; }
 _page() { printf '<!doctype html><html><head><meta charset="utf-8"></head><body style="font-family:system-ui,-apple-system,sans-serif;margin:0;padding:52px;background:%s"><div style="max-width:620px"><div style="font:600 12px/1 ui-monospace,monospace;letter-spacing:.12em;text-transform:uppercase;color:%s">ArtifactA</div><h1 style="margin:14px 0 10px;font-size:34px;color:#14142b">%s</h1><p style="color:#454a63;font-size:18px;line-height:1.6">%s</p></div></body></html>' "$2" "$4" "$1" "$3"; }
-_pub() { curl -s -X POST "$ARTIFACTA_BASE_URL/artifacts?title=$2" -H "Authorization: Bearer $1" -H "Content-Type: text/html; charset=utf-8" --data-binary "$3" | python3 -c 'import sys,json;print(json.load(sys.stdin)["slug"])'; }
+# _pub token title html [description]  → prints slug. Description (spaces as +) is
+# optional searchable metadata (ADR-0025).
+_pub() { local q="?title=$2"; [ -n "${4:-}" ] && q="$q&description=$4"; curl -s -X POST "$ARTIFACTA_BASE_URL/artifacts$q" -H "Authorization: Bearer $1" -H "Content-Type: text/html; charset=utf-8" --data-binary "$3" | python3 -c 'import sys,json;print(json.load(sys.stdin)["slug"])'; }
 _vis() { curl -s -o /dev/null -X PATCH "$ARTIFACTA_BASE_URL/artifacts/$2/visibility" -H "Authorization: Bearer $1" -H "Content-Type: application/json" -d "{\"visibility\":\"$3\"}"; }
 _grant_sub() { curl -s -o /dev/null -X POST "$ARTIFACTA_BASE_URL/artifacts/$2/grants" -H "Authorization: Bearer $1" -H "Content-Type: application/json" -d "{\"grantee_sub\":\"$3\"}"; }
 
@@ -114,17 +116,17 @@ seed() {
   local DEMO ALICE DEMO_SUB s
   DEMO=$(tok demo demo); ALICE=$(tok alice alice); DEMO_SUB=$(sub_of "$DEMO")
   echo "seeding as demo + alice…"
-  _pub "$DEMO" "Q3+Revenue+Deck"     "$(_page 'Q3 Revenue Deck' '#fff5f8' 'Bookings up 24% QoQ; net revenue retention 118%.' '#e8265c')" >/dev/null
-  s=$(_pub "$DEMO" "Engineering+Roadmap" "$(_page 'Engineering Roadmap' '#f4f7ff' 'H2: multi-region, self-serve onboarding, search + audit hardening.' '#5a5be0')"); _vis "$DEMO" "$s" org
-  s=$(_pub "$DEMO" "Onboarding+Guide"    "$(_page 'Onboarding Guide' '#f2fbf9' 'Everything a new hire needs in week one.' '#0f857a')"); _vis "$DEMO" "$s" link
-  _pub "$DEMO" "Pricing+Experiment"  "$(_page 'Pricing Experiment' '#ffffff' 'Usage-based tier vs seats. Early signal: +12% conversion.' '#e8265c')" >/dev/null
-  s=$(_pub "$DEMO" "Board+Update+Sept"   "$(_page 'Board Update — September' '#fbf7ff' 'KPIs, cash position, and two decisions we need from the board.' '#8f5be0')"); _vis "$DEMO" "$s" invited
-  _pub "$DEMO" "Brand+Guidelines"    "$(_page 'Brand Guidelines' '#fffdf5' 'Logo usage, type scale, core palette.' '#b8860b')" >/dev/null
+  _pub "$DEMO" "Q3+Revenue+Deck"     "$(_page 'Q3 Revenue Deck' '#fff5f8' 'Bookings up 24% QoQ; net revenue retention 118%.' '#e8265c')" "board+slides+on+Q3+bookings,+NRR+and+pipeline" >/dev/null
+  s=$(_pub "$DEMO" "Engineering+Roadmap" "$(_page 'Engineering Roadmap' '#f4f7ff' 'H2: multi-region, self-serve onboarding, search + audit hardening.' '#5a5be0')" "H2+engineering+themes+and+milestones"); _vis "$DEMO" "$s" org
+  s=$(_pub "$DEMO" "Onboarding+Guide"    "$(_page 'Onboarding Guide' '#f2fbf9' 'Everything a new hire needs in week one.' '#0f857a')" "new-hire+week-one+setup+and+contacts"); _vis "$DEMO" "$s" link
+  _pub "$DEMO" "Pricing+Experiment"  "$(_page 'Pricing Experiment' '#ffffff' 'Usage-based tier vs seats. Early signal: +12% conversion.' '#e8265c')" "usage-based+pricing+A/B+test+writeup" >/dev/null
+  s=$(_pub "$DEMO" "Board+Update+Sept"   "$(_page 'Board Update — September' '#fbf7ff' 'KPIs, cash position, and two decisions we need from the board.' '#8f5be0')" "september+board+update+with+KPIs+and+asks"); _vis "$DEMO" "$s" invited
+  _pub "$DEMO" "Brand+Guidelines"    "$(_page 'Brand Guidelines' '#fffdf5' 'Logo usage, type scale, core palette.' '#b8860b')" "logo,+type+scale+and+color+palette+rules" >/dev/null
   for t in "Company+OKRs" "Security+Policy" "All-Hands+Notes"; do
-    s=$(_pub "$ALICE" "$t" "$(_page "${t//+/ }" '#f4f7ff' 'An org-wide document shared with everyone signed in.' '#5a5be0')"); _vis "$ALICE" "$s" org
+    s=$(_pub "$ALICE" "$t" "$(_page "${t//+/ }" '#f4f7ff' 'An org-wide document shared with everyone signed in.' '#5a5be0')" "org-wide+reference+document"); _vis "$ALICE" "$s" org
   done
   # alice shares one with demo BY SUBJECT so it lands in demo's "Shared with me".
-  s=$(_pub "$ALICE" "Partnership+Proposal" "$(_page 'Partnership Proposal' '#fff5f8' 'Draft co-marketing terms — needs your review.' '#e8265c')")
+  s=$(_pub "$ALICE" "Partnership+Proposal" "$(_page 'Partnership Proposal' '#fff5f8' 'Draft co-marketing terms — needs your review.' '#e8265c')" "draft+co-marketing+terms+for+your+review")
   _vis "$ALICE" "$s" invited; _grant_sub "$ALICE" "$s" "$DEMO_SUB"
   echo "seeded. reload http://localhost:8099 (sign in as demo / demo)."
 }

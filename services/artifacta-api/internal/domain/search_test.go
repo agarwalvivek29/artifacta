@@ -83,6 +83,17 @@ func TestSearchTextMatchesTitleSlugLabelCaseInsensitive(t *testing.T) {
 	}
 }
 
+func TestSearchTextMatchesDescription(t *testing.T) {
+	arts := []*artifactav1.Artifact{
+		{Slug: "a", Title: "Untitled", Description: "Quarterly REVENUE analysis and forecast", Visibility: artifactav1.Visibility_VISIBILITY_PRIVATE, CreatedAt: timestamppb.New(base)},
+		{Slug: "b", Title: "Roadmap", Description: "engineering plan", Visibility: artifactav1.Visibility_VISIBILITY_PRIVATE, CreatedAt: timestamppb.New(base)},
+	}
+	// A word that appears only in the description (case-insensitive) still matches.
+	if got, total := SearchArtifacts(arts, nil, SearchQuery{Text: "revenue"}); total != 1 || got[0].GetSlug() != "a" {
+		t.Fatalf("description match = %v (total %d), want [a]", slugs(got), total)
+	}
+}
+
 func TestSearchEmailMatchesOwnerAndOwnGranteeOnly(t *testing.T) {
 	arts := []*artifactav1.Artifact{
 		art("mine", "t", artifactav1.Visibility_VISIBILITY_PRIVATE, "alice@x.co", base),    // owner_email match

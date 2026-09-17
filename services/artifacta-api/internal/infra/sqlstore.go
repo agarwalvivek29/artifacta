@@ -204,7 +204,7 @@ func (s *SQLStore) SearchArtifacts(q domain.SearchQuery) ([]*artifactav1.Artifac
 
 		if q.Text != "" {
 			like := "%" + strings.ToLower(q.Text) + "%"
-			db = db.Where("lower(data->>'title') LIKE ? OR lower(slug) LIKE ? OR lower(coalesce(label,'')) LIKE ?", like, like, like)
+			db = db.Where("lower(data->>'title') LIKE ? OR lower(slug) LIKE ? OR lower(coalesce(label,'')) LIKE ? OR lower(coalesce(data->>'description','')) LIKE ?", like, like, like, like)
 		}
 		if q.Email != "" {
 			like := "%" + strings.ToLower(q.Email) + "%"

@@ -294,6 +294,14 @@
     .pager button[aria-current="true"]{background:var(--accent);color:var(--on-accent);border-color:transparent}
     .pager button:disabled{opacity:.4;cursor:not-allowed}
     @media (max-width:560px){.searchbox{min-width:0;flex:1}.tbl .c-hide-sm{display:none}}
+
+    /* description subtitle + owner byline (ADR-0025) */
+    .desc{font-size:12.5px;color:var(--muted);line-height:1.45;overflow:hidden;text-overflow:ellipsis;
+      display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+    .byline{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;color:var(--muted)}
+    .byline svg{width:12px;height:12px;flex:none;opacity:.8}
+    .byline .who{font-family:"IBM Plex Mono",monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:180px}
+    .tbl .c-desc{font-size:12px;color:var(--muted);max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block;margin-top:2px}
   </style>
 </head>
 <body>
@@ -350,9 +358,9 @@
     // client-side into card or list views (search / sort / filter / paginate).
     // html/template JS-escapes each field, so titles/slugs are injection-safe.
     window.__ARTIFACTS__ = [
-      {{range .Mine}}{slug:"{{.Slug}}",title:"{{.Title}}",vis:"{{.Visibility}}",ver:{{.Version}},created:"{{.Created}}",kind:"{{.ContentType}}",type:"mine",owner:true},
-      {{end}}{{range .Shared}}{slug:"{{.Slug}}",title:"{{.Title}}",vis:"{{.Visibility}}",ver:{{.Version}},created:"{{.Created}}",kind:"{{.ContentType}}",type:"shared",owner:false},
-      {{end}}{{range .Org}}{slug:"{{.Slug}}",title:"{{.Title}}",vis:"{{.Visibility}}",ver:{{.Version}},created:"{{.Created}}",kind:"{{.ContentType}}",type:"org",owner:false},
+      {{range .Mine}}{slug:"{{.Slug}}",title:"{{.Title}}",vis:"{{.Visibility}}",ver:{{.Version}},created:"{{.Created}}",kind:"{{.ContentType}}",desc:"{{.Description}}",ownerEmail:"{{.OwnerEmail}}",type:"mine",owner:true},
+      {{end}}{{range .Shared}}{slug:"{{.Slug}}",title:"{{.Title}}",vis:"{{.Visibility}}",ver:{{.Version}},created:"{{.Created}}",kind:"{{.ContentType}}",desc:"{{.Description}}",ownerEmail:"{{.OwnerEmail}}",type:"shared",owner:false},
+      {{end}}{{range .Org}}{slug:"{{.Slug}}",title:"{{.Title}}",vis:"{{.Visibility}}",ver:{{.Version}},created:"{{.Created}}",kind:"{{.ContentType}}",desc:"{{.Description}}",ownerEmail:"{{.OwnerEmail}}",type:"org",owner:false},
       {{end}}
     ];
   </script>
@@ -432,6 +440,7 @@
             <span class="fn" id="upName">Choose a file…</span>
           </button>
           <input type="text" name="title" class="up-title" id="upTitleInput" placeholder="Title (optional)" maxlength="200" autocomplete="off">
+          <input type="text" name="description" class="up-title" id="upDescInput" placeholder="Description (optional) — searchable metadata" maxlength="500" autocomplete="off">
         </div>
         <div class="mf"><span class="msm">HTML, PDF, or an image · up to 25&nbsp;MiB · private by default</span><button class="up-submit" id="upSubmit" type="submit" disabled>Upload</button></div>
       </form>
@@ -650,6 +659,7 @@
       const SHARE_SVG = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="18" cy="5" r="2.6" stroke="currentColor" stroke-width="2"/><circle cx="6" cy="12" r="2.6" stroke="currentColor" stroke-width="2"/><circle cx="18" cy="19" r="2.6" stroke="currentColor" stroke-width="2"/><path d="M8.3 10.8l7.4-4.3M8.3 13.2l7.4 4.3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
       const COPY_SVG = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M9 9h9a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-9a2 2 0 0 1-2-2v-1M15 4H6a2 2 0 0 0-2 2v9" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
       const CHEV_SVG = '<svg class="chev" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+      const PERSON_SVG = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="8" r="3.4" stroke="currentColor" stroke-width="2"/><path d="M5 20a7 7 0 0 1 14 0" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
 
       const ls = {
         get(k,d){ try{ const v = localStorage.getItem('artifacta.dash.'+k); return v===null?d:v; }catch(_){ return d; } },
@@ -680,7 +690,8 @@
       function matchSearch(a){
         if(!st.q) return true;
         const q = st.q.toLowerCase();
-        return a.title.toLowerCase().includes(q) || a.slug.toLowerCase().includes(q);
+        return a.title.toLowerCase().includes(q) || a.slug.toLowerCase().includes(q) ||
+          (a.desc && a.desc.toLowerCase().includes(q));
       }
 
       // ── shared card element (used by the card view) ──
@@ -703,8 +714,18 @@
         const slug = document.createElement('span'); slug.className = 'slug'; slug.textContent = '/a/'+a.slug; r2.appendChild(slug);
         if(a.owner){ r2.appendChild(actionBtn('share', a.slug, a.title, 'Share', SHARE_SVG)); }
         r2.appendChild(actionBtn('copy', a.slug, null, 'Copy link', COPY_SVG));
-        meta.append(r1, r2); card.append(thumb, meta);
+        meta.append(r1);
+        if(a.desc){ const d = document.createElement('div'); d.className='desc'; d.title = a.desc; d.textContent = a.desc; meta.appendChild(d); }
+        meta.append(r2);
+        // On artifacts the viewer doesn't own, show who does.
+        if(!a.owner && a.ownerEmail){ meta.appendChild(bylineEl(a.ownerEmail)); }
+        card.append(thumb, meta);
         return card;
+      }
+      function bylineEl(email){
+        const b = document.createElement('div'); b.className='byline';
+        b.innerHTML = PERSON_SVG; const w = document.createElement('span'); w.className='who'; w.textContent = email;
+        b.append(document.createTextNode('owned by '), w); return b;
       }
       function actionBtn(cls, slug, title, label, svg){
         const b = document.createElement('button'); b.type = 'button';
@@ -832,6 +853,8 @@
         const ta = document.createElement('a'); ta.className='c-title'; ta.href='/a/'+a.slug; ta.textContent=a.title;
         const sl = document.createElement('span'); sl.className='c-slug'; sl.textContent='/a/'+a.slug;
         title.append(ta, sl);
+        if(a.desc){ const d = document.createElement('span'); d.className='c-desc'; d.title=a.desc; d.textContent=a.desc; title.appendChild(d); }
+        if(!a.owner && a.ownerEmail){ const by = bylineEl(a.ownerEmail); by.style.marginTop='3px'; title.appendChild(by); }
         const vis = document.createElement('td'); vis.innerHTML = '<span class="pill pill-'+a.vis+'">'+a.vis+'</span>';
         const kind = document.createElement('td'); kind.className='c-hide-sm'; const kb=document.createElement('span'); kb.className='kind'; kb.textContent=kindLabel(a.kind); kind.appendChild(kb);
         const ver = document.createElement('td'); ver.className='c-hide-sm'; ver.textContent = a.ver>0?('v'+a.ver):'—';

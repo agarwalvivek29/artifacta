@@ -123,11 +123,12 @@ func SearchArtifacts(arts []*artifactav1.Artifact, ownGrantsBySlug map[string][]
 }
 
 // matchText reports whether text (already lower-cased) is a substring of the
-// artifact's title, slug, or label.
+// artifact's title, slug, label, or description.
 func matchText(a *artifactav1.Artifact, text string) bool {
 	return strings.Contains(strings.ToLower(a.GetTitle()), text) ||
 		strings.Contains(strings.ToLower(a.GetSlug()), text) ||
-		strings.Contains(strings.ToLower(a.GetLabel()), text)
+		strings.Contains(strings.ToLower(a.GetLabel()), text) ||
+		strings.Contains(strings.ToLower(a.GetDescription()), text)
 }
 
 // matchEmail reports whether email (already lower-cased) is a substring of the

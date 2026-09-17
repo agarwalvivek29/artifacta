@@ -357,3 +357,33 @@ func TestEndToEndSearch(t *testing.T) {
 		t.Fatalf("anon search: got %d, want 401", code)
 	}
 }
+
+// TestEndToEndSearchByDescription: an artifact published with a ?description= is
+// findable by a word that appears only in the description (ADR-0025) — the point
+// of the field, so an agent can locate a past artifact by more than its title.
+func TestEndToEndSearchByDescription(t *testing.T) {
+	h := newHarness(t)
+
+	code, body := h.do(t, http.MethodPost,
+		"/artifacts?title=Meeting+Notes&description=quarterly+revenue+analysis+and+forecast",
+		alice, "text/html; charset=utf-8", "<p>notes</p>")
+	if code != http.StatusCreated {
+		t.Fatalf("publish with description: got %d (%s)", code, body)
+	}
+	var pub struct {
+		Slug string `json:"slug"`
+	}
+	if err := json.Unmarshal([]byte(body), &pub); err != nil {
+		t.Fatalf("decode publish: %v", err)
+	}
+
+	// A word only in the description matches; the metadata echoes the description.
+	code, body = h.do(t, http.MethodGet, "/artifacts/search?q=revenue", alice, "", "")
+	if code != http.StatusOK || !strings.Contains(body, `"slug":"`+pub.Slug+`"`) {
+		t.Fatalf("search by description word: got %d, body %s", code, body)
+	}
+	code, meta := h.do(t, http.MethodGet, "/artifacts/"+pub.Slug, alice, "", "")
+	if code != http.StatusOK || !strings.Contains(meta, "quarterly revenue analysis and forecast") {
+		t.Fatalf("metadata missing description: got %d, body %s", code, meta)
+	}
+}

@@ -50,6 +50,10 @@ type ArtifactView struct {
 	// IsOwner marks the caller's own artifacts (the Mine section), which get the
 	// owner-only Share control. False for Shared-with-me and Org cards.
 	IsOwner bool
+	// ViaUpload is true when the artifact was created through the browser upload
+	// UI (ADR-0024). The dashboard offers an owner-only "upload a new version"
+	// action only for these artifacts.
+	ViaUpload bool
 }
 
 // DashboardData is the view model for the authenticated dashboard, grouping the

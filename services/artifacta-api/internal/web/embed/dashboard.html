@@ -358,11 +358,14 @@
     // client-side into card or list views (search / sort / filter / paginate).
     // html/template JS-escapes each field, so titles/slugs are injection-safe.
     window.__ARTIFACTS__ = [
-      {{range .Mine}}{slug:"{{.Slug}}",title:"{{.Title}}",vis:"{{.Visibility}}",ver:{{.Version}},created:"{{.Created}}",kind:"{{.ContentType}}",desc:"{{.Description}}",ownerEmail:"{{.OwnerEmail}}",type:"mine",owner:true},
-      {{end}}{{range .Shared}}{slug:"{{.Slug}}",title:"{{.Title}}",vis:"{{.Visibility}}",ver:{{.Version}},created:"{{.Created}}",kind:"{{.ContentType}}",desc:"{{.Description}}",ownerEmail:"{{.OwnerEmail}}",type:"shared",owner:false},
-      {{end}}{{range .Org}}{slug:"{{.Slug}}",title:"{{.Title}}",vis:"{{.Visibility}}",ver:{{.Version}},created:"{{.Created}}",kind:"{{.ContentType}}",desc:"{{.Description}}",ownerEmail:"{{.OwnerEmail}}",type:"org",owner:false},
+      {{range .Mine}}{slug:"{{.Slug}}",title:"{{.Title}}",vis:"{{.Visibility}}",ver:{{.Version}},created:"{{.Created}}",kind:"{{.ContentType}}",desc:"{{.Description}}",ownerEmail:"{{.OwnerEmail}}",viaUpload:{{.ViaUpload}},type:"mine",owner:true},
+      {{end}}{{range .Shared}}{slug:"{{.Slug}}",title:"{{.Title}}",vis:"{{.Visibility}}",ver:{{.Version}},created:"{{.Created}}",kind:"{{.ContentType}}",desc:"{{.Description}}",ownerEmail:"{{.OwnerEmail}}",viaUpload:{{.ViaUpload}},type:"shared",owner:false},
+      {{end}}{{range .Org}}{slug:"{{.Slug}}",title:"{{.Title}}",vis:"{{.Visibility}}",ver:{{.Version}},created:"{{.Created}}",kind:"{{.ContentType}}",desc:"{{.Description}}",ownerEmail:"{{.OwnerEmail}}",viaUpload:{{.ViaUpload}},type:"org",owner:false},
       {{end}}
     ];
+    // Whether the browser upload UI is enabled (gates the per-artifact
+    // "upload a new version" action, ADR-0024).
+    window.__UPLOAD_UI__ = {{if .UploadEnabled}}true{{else}}false{{end}};
   </script>
 
   <!-- Share dialog (owner-only; populated + wired in JS) -->
@@ -446,6 +449,29 @@
       </form>
     </div>
   </div>
+
+  <!-- Upload a NEW VERSION of an upload-created artifact (ADR-0024). The form's
+       action is set per-artifact in JS when the dialog opens. -->
+  <div class="share-ov" id="versionOv" role="dialog" aria-modal="true" aria-labelledby="verTitle">
+    <div class="share-md">
+      <form id="verForm" method="POST" action="" enctype="multipart/form-data">
+        <div class="mh">
+          <div class="t"><div class="eyebrow">New version</div><h3 id="verTitle">Upload a new version</h3></div>
+          <button class="x" id="verClose" type="button" aria-label="Close">&times;</button>
+        </div>
+        <div class="mb">
+          <input type="file" name="file" id="verFile" hidden required
+                 accept=".html,.htm,.pdf,.png,.jpg,.jpeg,.gif,.webp,.svg,text/html,application/pdf,image/png,image/jpeg,image/gif,image/webp,image/svg+xml">
+          <button type="button" class="up-file" id="verPick">
+            <span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M8 8l4-4 4 4"/><path d="M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg></span>
+            <span class="fn" id="verName">Choose a file…</span>
+          </button>
+          <p class="msm" id="verFor" style="margin:12px 2px 0"></p>
+        </div>
+        <div class="mf"><span class="msm">Appends an immutable version · up to 25&nbsp;MiB · visibility and sharing are unchanged</span><button class="up-submit" id="verSubmit" type="submit" disabled>Upload version</button></div>
+      </form>
+    </div>
+  </div>
   {{end}}
 
   <div class="toast" id="toast">Link copied</div>
@@ -475,7 +501,9 @@
         return;
       }
       const sh = e.target.closest('.share');
-      if (sh) { e.preventDefault(); e.stopPropagation(); openShare(sh.dataset.slug, sh.dataset.title); }
+      if (sh) { e.preventDefault(); e.stopPropagation(); openShare(sh.dataset.slug, sh.dataset.title); return; }
+      const nv = e.target.closest('.newver');
+      if (nv && typeof openVersion === 'function') { e.preventDefault(); e.stopPropagation(); openVersion(nv.dataset.slug, nv.dataset.title); }
     });
 
     // ── Share dialog ────────────────────────────────────────────────
@@ -646,6 +674,34 @@
       document.addEventListener('keydown', e => { if (e.key === 'Escape') closeUp(); });
     }
 
+    // "Upload a new version" dialog (ADR-0024) — present only when the upload UI
+    // is on. openVersion() is called by the delegated #board handler for artifacts
+    // the caller owns that were themselves created via upload. Native multipart
+    // POST to /artifacts/<slug>/versions → 303 redirect to the artifact.
+    var openVersion;
+    const verOv = el('versionOv');
+    if (verOv) {
+      const verForm = el('verForm'), verFile = el('verFile'), verSubmit = el('verSubmit');
+      const closeVer = () => verOv.classList.remove('open');
+      openVersion = (slug, title) => {
+        verForm.setAttribute('action', '/artifacts/' + encodeURIComponent(slug) + '/versions');
+        el('verFor').textContent = 'Appends a new version to “' + (title || slug) + '”. Sharing and visibility stay the same.';
+        el('verName').textContent = 'Choose a file…'; el('verPick').classList.remove('has');
+        verFile.value = ''; verSubmit.disabled = true;
+        verOv.classList.add('open'); verFile.focus();
+      };
+      el('verPick').addEventListener('click', () => verFile.click());
+      verFile.addEventListener('change', () => {
+        const f = verFile.files && verFile.files[0];
+        el('verName').textContent = f ? f.name : 'Choose a file…';
+        el('verPick').classList.toggle('has', !!f);
+        verSubmit.disabled = !f;
+      });
+      el('verClose').addEventListener('click', closeVer);
+      verOv.addEventListener('click', e => { if (e.target === verOv) closeVer(); });
+      document.addEventListener('keydown', e => { if (e.key === 'Escape') closeVer(); });
+    }
+
     // ── Dashboard controller: card/list views, search, sort, filter, paginate ──
     (function(){
       const ALL = Array.isArray(window.__ARTIFACTS__) ? window.__ARTIFACTS__ : [];
@@ -660,6 +716,8 @@
       const COPY_SVG = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M9 9h9a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-9a2 2 0 0 1-2-2v-1M15 4H6a2 2 0 0 0-2 2v9" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
       const CHEV_SVG = '<svg class="chev" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
       const PERSON_SVG = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="8" r="3.4" stroke="currentColor" stroke-width="2"/><path d="M5 20a7 7 0 0 1 14 0" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
+      const NEWVER_SVG = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 16V5M8 9l4-4 4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 19h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
+      const canNewVersion = a => window.__UPLOAD_UI__ === true && a.owner && a.viaUpload;
 
       const ls = {
         get(k,d){ try{ const v = localStorage.getItem('artifacta.dash.'+k); return v===null?d:v; }catch(_){ return d; } },
@@ -713,6 +771,7 @@
         const r2 = document.createElement('div'); r2.className = 'row2';
         const slug = document.createElement('span'); slug.className = 'slug'; slug.textContent = '/a/'+a.slug; r2.appendChild(slug);
         if(a.owner){ r2.appendChild(actionBtn('share', a.slug, a.title, 'Share', SHARE_SVG)); }
+        if(canNewVersion(a)){ r2.appendChild(actionBtn('newver', a.slug, a.title, 'Upload a new version', NEWVER_SVG)); }
         r2.appendChild(actionBtn('copy', a.slug, null, 'Copy link', COPY_SVG));
         meta.append(r1);
         if(a.desc){ const d = document.createElement('div'); d.className='desc'; d.title = a.desc; d.textContent = a.desc; meta.appendChild(d); }
@@ -864,6 +923,7 @@
         open.innerHTML='<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M7 17L17 7M17 7H9M17 7v8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
         act.appendChild(open);
         if(a.owner) act.appendChild(actionBtn('share', a.slug, a.title, 'Share', SHARE_SVG));
+        if(canNewVersion(a)) act.appendChild(actionBtn('newver', a.slug, a.title, 'Upload a new version', NEWVER_SVG));
         act.appendChild(actionBtn('copy', a.slug, null, 'Copy link', COPY_SVG));
         tr.append(type, title, vis, kind, ver, cr, act);
         return tr;

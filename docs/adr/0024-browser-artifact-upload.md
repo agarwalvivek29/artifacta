@@ -75,3 +75,12 @@ needs no CSP change (a plain full-page form POST).
 
 Rejected: a client could label an executable as an inert type (or vice-versa). Server-deciding the
 type from the extension against an allowlist keeps the sandbox guarantees intact.
+
+## Follow-up (0.0.14) — upload a new version
+
+The browser upload path was extended from create-only to also **append a new version** of an
+existing artifact: `POST /artifacts/{slug}/versions` accepts a multipart form (owner-only,
+upload-UI on, same-origin) and appends an immutable v(n+1) through the same allowlist + render
+pipeline. It is gated by a new `Artifact.via_upload` flag so that **only artifacts created via the
+upload UI** are version-editable from the browser — a CLI/API-created artifact returns 409, keeping
+its version history a CLI concern. Create and version-append share one `appendVersion` helper.

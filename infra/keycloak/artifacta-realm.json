@@ -1,0 +1,49 @@
+{
+  "realm": "artifacta",
+  "enabled": true,
+  "displayName": "ArtifactA (local dev)",
+  "sslRequired": "none",
+  "loginTheme": "keycloak",
+  "clients": [
+    {
+      "clientId": "artifacta-web",
+      "name": "ArtifactA web (local dev)",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "secret": "artifacta-dev-secret",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": true,
+      "redirectUris": [
+        "http://localhost:8099/callback",
+        "http://localhost:8099/*"
+      ],
+      "webOrigins": ["http://localhost:8099"],
+      "attributes": { "post.logout.redirect.uris": "http://localhost:8099/*" }
+    }
+  ],
+  "users": [
+    {
+      "username": "demo",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "demo@corp.example",
+      "firstName": "Demo",
+      "lastName": "User",
+      "credentials": [
+        { "type": "password", "value": "demo", "temporary": false }
+      ]
+    },
+    {
+      "username": "alice",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "alice@corp.example",
+      "firstName": "Alice",
+      "lastName": "Anders",
+      "credentials": [
+        { "type": "password", "value": "alice", "temporary": false }
+      ]
+    }
+  ]
+}

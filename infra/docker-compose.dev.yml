@@ -1,0 +1,95 @@
+# Local-dev backing services for artifacta-api: Postgres + MinIO (S3) + Keycloak (OIDC).
+#
+# This is the DEV stack — it stands up the dependencies you'd otherwise fake, so
+# you can run the real code path (postgres store, S3 blobs, browser SSO) on your
+# laptop. It does NOT run the app itself: the API is run on the host by
+# `scripts/dev.sh` so its OIDC issuer URL (http://localhost:8085/...) is identical
+# for the Go process AND your browser — running it in-network would split the
+# issuer host (keycloak:8080 vs localhost:8085) and break token validation.
+#
+# Bring it up with `./scripts/dev.sh up` (preferred) or `docker compose -f
+# infra/docker-compose.dev.yml up -d`. Credentials + ports are documented in
+# docs/LOCAL_DEV.md and echoed by the script. Everything here is DEV-ONLY: weak
+# passwords, no TLS, in-memory Keycloak. Never point this at anything real.
+
+name: artifacta-dev
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: artifacta-dev-pg
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: pass
+      POSTGRES_DB: artifacta
+    ports:
+      - "55433:5432" # host 55433 → avoids clashing with a local 5432
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d artifacta"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  minio:
+    image: minio/minio:latest
+    container_name: artifacta-dev-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000" # S3 API
+      - "9001:9001" # web console
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD-SHELL", "mc ready local || exit 1"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  # One-shot: create the bundle bucket, then exit 0. `dev.sh` waits on this.
+  minio-init:
+    image: minio/mc:latest
+    container_name: artifacta-dev-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 minioadmin minioadmin &&
+      mc mb --ignore-existing local/artifacta-bundles &&
+      echo 'bucket ready: artifacta-bundles';
+      "
+    restart: "no"
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:24.0
+    container_name: artifacta-dev-kc
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+      KC_DB: dev-mem # in-memory H2; realm re-imported on every boot (deterministic)
+      KC_HEALTH_ENABLED: "true"
+    ports:
+      - "8085:8080" # host 8085 → avoids clashing with a local 8080
+    volumes:
+      # The realm/client/users are imported from this file on every start, so the
+      # OIDC config is version-controlled, not clicked together by hand.
+      - ./keycloak/artifacta-realm.json:/opt/keycloak/data/import/artifacta-realm.json:ro
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "exec 3<>/dev/tcp/localhost/9000 && echo -e 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && cat <&3 | grep -q '200 OK'",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+volumes:
+  pgdata:
+  miniodata:

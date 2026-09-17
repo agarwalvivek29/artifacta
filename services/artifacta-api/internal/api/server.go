@@ -333,11 +333,17 @@ func toViews(arts []*artifactav1.Artifact) []web.ArtifactView {
 }
 
 func toView(a *artifactav1.Artifact) web.ArtifactView {
+	created := ""
+	if a.GetCreatedAt() != nil {
+		created = a.GetCreatedAt().AsTime().UTC().Format("2006-01-02")
+	}
 	return web.ArtifactView{
-		Slug:       a.GetSlug(),
-		Title:      a.GetTitle(),
-		Visibility: visibilityLabel(a.GetVisibility()),
-		Version:    a.GetLatestVersion(),
+		Slug:        a.GetSlug(),
+		Title:       a.GetTitle(),
+		Visibility:  visibilityLabel(a.GetVisibility()),
+		Version:     a.GetLatestVersion(),
+		Created:     created,
+		ContentType: a.GetContentType(),
 	}
 }
 

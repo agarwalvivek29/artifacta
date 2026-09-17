@@ -34,6 +34,12 @@ type ArtifactView struct {
 	Title      string
 	Visibility string
 	Version    int32
+	// Created is the artifact's creation date as YYYY-MM-DD (UTC) — a sortable,
+	// display-friendly column for the dashboard's list view.
+	Created string
+	// ContentType is the stored media type, surfaced as a "kind" column/badge
+	// (html, markdown, pdf, image, …) in the list view.
+	ContentType string
 	// IsOwner marks the caller's own artifacts (the Mine section), which get the
 	// owner-only Share control. False for Shared-with-me and Org cards.
 	IsOwner bool

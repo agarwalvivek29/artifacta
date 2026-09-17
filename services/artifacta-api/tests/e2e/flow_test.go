@@ -216,10 +216,12 @@ func TestEndToEndPublishViewShareAuditFlow(t *testing.T) {
 	if code != http.StatusOK {
 		t.Fatalf("dashboard as alice: got %d, want 200", code)
 	}
-	if !strings.Contains(dash, "<h2>Mine</h2>") {
-		t.Fatalf("dashboard as alice missing Mine section: %s", dash)
+	if !strings.Contains(dash, `id="board"`) {
+		t.Fatalf("dashboard as alice did not render (no board): %s", dash)
 	}
-	if !strings.Contains(dash, "/a/"+slug) || !strings.Contains(dash, ">Report<") {
+	// The published artifact is in the data island the controller renders from,
+	// tagged as the caller's own (type:"mine").
+	if !strings.Contains(dash, `slug:"`+slug+`"`) || !strings.Contains(dash, `title:"Report"`) {
 		t.Fatalf("dashboard as alice missing published artifact %q: %s", slug, dash)
 	}
 
@@ -232,7 +234,7 @@ func TestEndToEndPublishViewShareAuditFlow(t *testing.T) {
 	if !strings.Contains(landing, `href="/login"`) || !strings.Contains(landing, "ArtifactA") {
 		t.Fatalf("anonymous root is not the sign-in page: %s", landing)
 	}
-	if strings.Contains(landing, "<h2>Mine</h2>") {
+	if strings.Contains(landing, "__ARTIFACTS__") || strings.Contains(landing, `id="board"`) {
 		t.Fatalf("anonymous root leaked the dashboard: %s", landing)
 	}
 

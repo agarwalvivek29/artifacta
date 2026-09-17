@@ -2,6 +2,26 @@
 
 All notable changes to ArtifactA are documented here. Versions follow [SemVer](https://semver.org).
 
+## 0.0.12 — 2026-09-18
+
+### Added
+
+- **Dashboard: card and list views.** A toolbar toggles between the existing card
+  grid and a new unified **list/table** view that shows every artifact in one place
+  with a **Type** column (Mine / Shared with me / Org). List view has per-column
+  **sort** (click a header) and per-column **filters** (Type / Title / Visibility /
+  Kind) alongside a **search** box (title + link), plus **pagination** with a
+  per-page control (12 / 24 / 48 / All). Card view's three sections are now
+  **collapsible**. View, page size, sort, and collapsed-section choices persist
+  per browser. Rendered client-side from a data island (no-JS fallback, titles
+  JS-escaped); `ArtifactView` gains `Created` + `ContentType` for the new columns.
+- **One-command local dev stack** (`docs/LOCAL_DEV.md`): `scripts/dev.sh` +
+  `infra/docker-compose.dev.yml` stand up **Postgres + MinIO (S3) + Keycloak**
+  with a version-controlled realm import (`infra/keycloak/artifacta-realm.json`:
+  client `artifacta-web`, users `demo`/`alice`), wait for health, run the API on
+  the host in OIDC mode, and seed sample artifacts — so contributors exercise the
+  real store/blob/SSO paths without hand-wiring containers.
+
 ## 0.0.11 — 2026-09-15
 
 ### Added

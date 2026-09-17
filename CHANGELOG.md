@@ -2,6 +2,22 @@
 
 All notable changes to ArtifactA are documented here. Versions follow [SemVer](https://semver.org).
 
+## 0.0.13 — 2026-09-18
+
+### Added
+
+- **Optional artifact `description`** — free-text metadata a publisher (or an
+  assistant) can set to record what an artifact is for. It is **searchable**
+  alongside title / slug / label (`GET /artifacts/search?q=`, the SQL path, and
+  the dashboard's client-side search), so an agent can find a past artifact by
+  more than its title. Set it via `POST /artifacts?description=`, the browser
+  upload form, or `artifacta publish --description "…"`; it's returned by the
+  metadata and search endpoints and shown as a subtitle in the dashboard.
+- **Owner shown on Shared / Org artifacts** — the dashboard now displays
+  "owned by &lt;email&gt;" on artifacts you don't own (Shared-with-me and Org), so
+  it's clear who published something shared with you. (Uses the existing
+  `owner_email`; not shown on your own artifacts.)
+
 ## 0.0.12 — 2026-09-18
 
 ### Added

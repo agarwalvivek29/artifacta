@@ -2,6 +2,19 @@
 
 All notable changes to ArtifactA are documented here. Versions follow [SemVer](https://semver.org).
 
+## 0.0.14 — 2026-09-18
+
+### Added
+
+- **Upload a new version from the browser** (ADR-0024). The dashboard now offers an
+  owner-only "upload a new version" action that appends an immutable v(n+1) via a
+  multipart `POST /artifacts/{slug}/versions` — same allowlist, size cap, and
+  render pipeline as the create-upload; sharing and visibility are unchanged.
+  It is deliberately limited to artifacts that were **themselves created via the
+  upload UI** (new `Artifact.via_upload`): CLI/API-created artifacts still take new
+  versions only from the CLI and the browser path returns 409 for them. Gated like
+  the create path (upload toggle on, owner-only, same-origin CSRF check).
+
 ## 0.0.13 — 2026-09-18
 
 ### Added

@@ -171,7 +171,13 @@ type Artifact struct {
 	// publisher (e.g. an assistant recording what a page is for). It is searchable
 	// alongside title/slug/label so an agent can find a past artifact by more than
 	// its title. Display/search metadata only — never used for authorization.
-	Description   string `protobuf:"bytes,10,opt,name=description,proto3" json:"description,omitempty"`
+	Description string `protobuf:"bytes,10,opt,name=description,proto3" json:"description,omitempty"`
+	// via_upload is true when the artifact's first version was created through the
+	// browser upload UI (ADR-0024). It gates the UI "upload a new version" path:
+	// only upload-created artifacts accept a new version from the browser (the
+	// CLI/API versioning path is unaffected). Gating metadata only — never used by
+	// CanView.
+	ViaUpload     bool `protobuf:"varint,11,opt,name=via_upload,json=viaUpload,proto3" json:"via_upload,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -274,6 +280,13 @@ func (x *Artifact) GetDescription() string {
 		return x.Description
 	}
 	return ""
+}
+
+func (x *Artifact) GetViaUpload() bool {
+	if x != nil {
+		return x.ViaUpload
+	}
+	return false
 }
 
 // ArtifactVersion is one immutable revision of an artifact's bundle. Versions are
@@ -663,7 +676,7 @@ const file_artifacta_v1_artifact_proto_rawDesc = "" +
 	"\x1bartifacta/v1/artifact.proto\x12\fartifacta.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"2\n" +
 	"\bIdentity\x12\x10\n" +
 	"\x03sub\x18\x01 \x01(\tR\x03sub\x12\x14\n" +
-	"\x05email\x18\x02 \x01(\tR\x05email\"\xe9\x02\n" +
+	"\x05email\x18\x02 \x01(\tR\x05email\"\x88\x03\n" +
 	"\bArtifact\x12\x12\n" +
 	"\x04slug\x18\x01 \x01(\tR\x04slug\x12\x1b\n" +
 	"\towner_sub\x18\x02 \x01(\tR\bownerSub\x12\x14\n" +
@@ -679,7 +692,9 @@ const file_artifacta_v1_artifact_proto_rawDesc = "" +
 	"\vowner_email\x18\t \x01(\tR\n" +
 	"ownerEmail\x12 \n" +
 	"\vdescription\x18\n" +
-	" \x01(\tR\vdescription\"\xc4\x01\n" +
+	" \x01(\tR\vdescription\x12\x1d\n" +
+	"\n" +
+	"via_upload\x18\v \x01(\bR\tviaUpload\"\xc4\x01\n" +
 	"\x0fArtifactVersion\x12\x12\n" +
 	"\x04slug\x18\x01 \x01(\tR\x04slug\x12\f\n" +
 	"\x01n\x18\x02 \x01(\x05R\x01n\x12!\n" +

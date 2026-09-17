@@ -67,6 +67,12 @@ message Artifact {
   // alongside title/slug/label so an agent can find a past artifact by more than
   // its title. Display/search metadata only — never used for authorization.
   string description = 10;
+  // via_upload is true when the artifact's first version was created through the
+  // browser upload UI (ADR-0024). It gates the UI "upload a new version" path:
+  // only upload-created artifacts accept a new version from the browser (the
+  // CLI/API versioning path is unaffected). Gating metadata only — never used by
+  // CanView.
+  bool via_upload = 11;
 }
 
 // ArtifactVersion is one immutable revision of an artifact's bundle. Versions are

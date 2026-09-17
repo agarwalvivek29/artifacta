@@ -40,8 +40,10 @@ type ArtifactSummary struct {
 	Label string `protobuf:"bytes,6,opt,name=label,proto3" json:"label,omitempty"`
 	// owner_email is the publisher's email (may be empty for pre-ADR-0025
 	// artifacts). Returned on every row (accepted org-wide disclosure, ADR-0025).
-	OwnerEmail    string                 `protobuf:"bytes,7,opt,name=owner_email,json=ownerEmail,proto3" json:"owner_email,omitempty"`
-	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	OwnerEmail string                 `protobuf:"bytes,7,opt,name=owner_email,json=ownerEmail,proto3" json:"owner_email,omitempty"`
+	CreatedAt  *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	// description is the publisher's optional free-text metadata (searchable).
+	Description   string `protobuf:"bytes,9,opt,name=description,proto3" json:"description,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -132,6 +134,13 @@ func (x *ArtifactSummary) GetCreatedAt() *timestamppb.Timestamp {
 	return nil
 }
 
+func (x *ArtifactSummary) GetDescription() string {
+	if x != nil {
+		return x.Description
+	}
+	return ""
+}
+
 // SearchArtifactsResponse is the GET /artifacts/search body: one page of matching
 // rows plus the pagination meta describing the full result set.
 type SearchArtifactsResponse struct {
@@ -190,7 +199,7 @@ var File_artifacta_v1_search_proto protoreflect.FileDescriptor
 
 const file_artifacta_v1_search_proto_rawDesc = "" +
 	"\n" +
-	"\x19artifacta/v1/search.proto\x12\fartifacta.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1acommon/v1/pagination.proto\"\x86\x02\n" +
+	"\x19artifacta/v1/search.proto\x12\fartifacta.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1acommon/v1/pagination.proto\"\xa8\x02\n" +
 	"\x0fArtifactSummary\x12\x12\n" +
 	"\x04slug\x18\x01 \x01(\tR\x04slug\x12\x14\n" +
 	"\x05title\x18\x02 \x01(\tR\x05title\x12\x1e\n" +
@@ -203,7 +212,8 @@ const file_artifacta_v1_search_proto_rawDesc = "" +
 	"\vowner_email\x18\a \x01(\tR\n" +
 	"ownerEmail\x129\n" +
 	"\n" +
-	"created_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\"}\n" +
+	"created_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12 \n" +
+	"\vdescription\x18\t \x01(\tR\vdescription\"}\n" +
 	"\x17SearchArtifactsResponse\x123\n" +
 	"\x05items\x18\x01 \x03(\v2\x1d.artifacta.v1.ArtifactSummaryR\x05items\x12-\n" +
 	"\x04page\x18\x02 \x01(\v2\x19.common.v1.PaginationMetaR\x04pageB\xca\x01\n" +

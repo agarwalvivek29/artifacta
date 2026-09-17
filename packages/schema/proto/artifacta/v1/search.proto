@@ -31,6 +31,8 @@ message ArtifactSummary {
   // artifacts). Returned on every row (accepted org-wide disclosure, ADR-0025).
   string owner_email = 7;
   google.protobuf.Timestamp created_at = 8;
+  // description is the publisher's optional free-text metadata (searchable).
+  string description = 9;
 }
 
 // SearchArtifactsResponse is the GET /artifacts/search body: one page of matching

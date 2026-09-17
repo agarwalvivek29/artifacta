@@ -62,6 +62,11 @@ message Artifact {
   // a denormalized snapshot: empty on artifacts published before this field
   // existed, and not refreshed if the user's email later changes (ADR-0025).
   string owner_email = 9;
+  // description is optional free-text metadata about the artifact, set by the
+  // publisher (e.g. an assistant recording what a page is for). It is searchable
+  // alongside title/slug/label so an agent can find a past artifact by more than
+  // its title. Display/search metadata only — never used for authorization.
+  string description = 10;
 }
 
 // ArtifactVersion is one immutable revision of an artifact's bundle. Versions are

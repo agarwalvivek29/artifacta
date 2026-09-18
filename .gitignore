@@ -112,3 +112,6 @@ temp/
 
 .sessions/
 .gstack/
+
+# local dev stack state (scripts/dev.sh)
+.dev/

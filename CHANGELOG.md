@@ -2,6 +2,88 @@
 
 All notable changes to ArtifactA are documented here. Versions follow [SemVer](https://semver.org).
 
+## 0.0.14 — 2026-09-18
+
+### Added
+
+- **Upload a new version from the browser** (ADR-0024). The dashboard now offers an
+  owner-only "upload a new version" action that appends an immutable v(n+1) via a
+  multipart `POST /artifacts/{slug}/versions` — same allowlist, size cap, and
+  render pipeline as the create-upload; sharing and visibility are unchanged.
+  It is deliberately limited to artifacts that were **themselves created via the
+  upload UI** (new `Artifact.via_upload`): CLI/API-created artifacts still take new
+  versions only from the CLI and the browser path returns 409 for them. Gated like
+  the create path (upload toggle on, owner-only, same-origin CSRF check).
+
+## 0.0.13 — 2026-09-18
+
+### Added
+
+- **Optional artifact `description`** — free-text metadata a publisher (or an
+  assistant) can set to record what an artifact is for. It is **searchable**
+  alongside title / slug / label (`GET /artifacts/search?q=`, the SQL path, and
+  the dashboard's client-side search), so an agent can find a past artifact by
+  more than its title. Set it via `POST /artifacts?description=`, the browser
+  upload form, or `artifacta publish --description "…"`; it's returned by the
+  metadata and search endpoints and shown as a subtitle in the dashboard.
+- **Owner shown on Shared / Org artifacts** — the dashboard now displays
+  "owned by &lt;email&gt;" on artifacts you don't own (Shared-with-me and Org), so
+  it's clear who published something shared with you. (Uses the existing
+  `owner_email`; not shown on your own artifacts.)
+
+## 0.0.12 — 2026-09-18
+
+### Added
+
+- **Dashboard: card and list views.** A toolbar toggles between the existing card
+  grid and a new unified **list/table** view that shows every artifact in one place
+  with a **Type** column (Mine / Shared with me / Org). List view has per-column
+  **sort** (click a header) and per-column **filters** (Type / Title / Visibility /
+  Kind) alongside a **search** box (title + link), plus **pagination** with a
+  per-page control (12 / 24 / 48 / All). Card view's three sections are now
+  **collapsible**. View, page size, sort, and collapsed-section choices persist
+  per browser. Rendered client-side from a data island (no-JS fallback, titles
+  JS-escaped); `ArtifactView` gains `Created` + `ContentType` for the new columns.
+- **One-command local dev stack** (`docs/LOCAL_DEV.md`): `scripts/dev.sh` +
+  `infra/docker-compose.dev.yml` stand up **Postgres + MinIO (S3) + Keycloak**
+  with a version-controlled realm import (`infra/keycloak/artifacta-realm.json`:
+  client `artifacta-web`, users `demo`/`alice`), wait for health, run the API on
+  the host in OIDC mode, and seed sample artifacts — so contributors exercise the
+  real store/blob/SSO paths without hand-wiring containers.
+
+## 0.0.11 — 2026-09-15
+
+### Added
+
+- **Artifact search** (ADR-0025, spec 9): `GET /artifacts/search` searches everything the caller can
+  see (their own artifacts, ones shared with them, and org-visible ones), filtering by free text
+  (title / slug / custom label), by an email tied to the artifact, and by visibility — with
+  page-based pagination (`page` / `page_size` / `sort_by` / `sort_order`, reusing the shared
+  `common/v1` pagination types). Results are always a strict subset of what the viewer can already
+  open, deduped by slug, ordered deterministically for stable paging.
+- **`Artifact.owner_email`** persisted at publish (server-derived from the authenticated identity),
+  so "shared with me by `alice@x.com`" is answerable. It is display/search metadata only — grants
+  still bind to the immutable subject and `CanView` never consults it.
+
+### Security
+
+- The `email` filter matches an artifact's `owner_email` across the visible set, but a **grantee's**
+  email is matched only on artifacts the caller **owns** — a viewer can never probe or enumerate the
+  share-list of an org artifact they don't own.
+
+### Internal
+
+- New `Store.SearchArtifacts` on both backends: SQL pushdown in Postgres (indexed `owner_email`
+  column, jsonb `title` match, `COUNT` + `LIMIT/OFFSET`), in-memory in the file store via a shared
+  pure `domain.SearchArtifacts`. The store-conformance suite runs both, verifying identical results.
+
+### Notes
+
+- `owner_email` is a denormalized snapshot: empty on artifacts published before this release (no
+  subject→email directory to backfill from) and not refreshed if a user's email later changes, so the
+  email filter can under-return on old or renamed rows. Existing `GET /artifacts` and the dashboard
+  are unchanged (still unpaginated); search is the paginated surface.
+
 ## 0.0.10 — 2026-09-11
 
 ### Added

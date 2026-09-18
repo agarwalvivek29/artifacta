@@ -37,11 +37,11 @@ artifact-runtime lands in `apps/` for render parity (v2).
 
 ## Core Domain Model
 
-| Entity     | Proto file                                          | Key fields                                           | Lifecycle                                                                              | Events                |
-| ---------- | --------------------------------------------------- | ---------------------------------------------------- | -------------------------------------------------------------------------------------- | --------------------- |
-| Artifact   | `packages/schema/proto/artifacta/v1/artifact.proto` | slug, owner_sub, visibility, content_type            | visibility: PRIVATE→INVITED→ORG→LINK (owner-set; LINK = no-login, VPN-gated, ADR-0018) | audit: PUBLISH / VIEW |
-| Grant      | `packages/schema/proto/artifacta/v1/artifact.proto` | slug, grantee_sub (immutable), granted_by            | created / revoked                                                                      | audit: SHARE          |
-| AuditEvent | `packages/schema/proto/artifacta/v1/audit.proto`    | seq, principal_sub, action, allowed, prev_hash, hash | append-only hash chain                                                                 | —                     |
+| Entity     | Proto file                                          | Key fields                                                                 | Lifecycle                                                                                                                                                                                          | Events                |
+| ---------- | --------------------------------------------------- | -------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- |
+| Artifact   | `packages/schema/proto/artifacta/v1/artifact.proto` | slug, owner_sub, owner_email, title, description, visibility, content_type | visibility: PRIVATE→INVITED→ORG→LINK (owner-set; LINK = no-login, VPN-gated, ADR-0018). owner_email + optional description are denormalized, searchable metadata (ADR-0025), never used by CanView | audit: PUBLISH / VIEW |
+| Grant      | `packages/schema/proto/artifacta/v1/artifact.proto` | slug, grantee_sub (immutable), granted_by                                  | created / revoked                                                                                                                                                                                  | audit: SHARE          |
+| AuditEvent | `packages/schema/proto/artifacta/v1/audit.proto`    | seq, principal_sub, action, allowed, prev_hash, hash                       | append-only hash chain                                                                                                                                                                             | —                     |
 
 All domain types are schema-first (Rule 12): defined in proto, generated to Go, imported
 by the service — never redefined in service code.
@@ -82,15 +82,16 @@ login <url>` self-configures from the discovery endpoint and holds an OIDC refre
 
 ## Key ADRs
 
-| ADR                                                         | Decision                                                                                                        | Status   |
-| ----------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- | -------- |
-| [0001](docs/adr/0001-monorepo-structure.md)                 | Monorepo with per-service isolation                                                                             | Accepted |
-| [0002](docs/adr/0002-auth-model.md)                         | Pluggable OIDC/local/forward-auth + per-artifact RBAC (diverges from JWT+API-key default)                       | Accepted |
-| [0006](docs/adr/0006-s3-blob-adapter-backend-only.md)       | Selectable file/S3 blob store, backend-only (no presigned URLs; every byte gated + audited)                     | Accepted |
-| [0009](docs/adr/0009-postgres-store-adapter.md)             | Selectable file/Postgres store (GORM, auto-migrating; label UNIQUE constraint)                                  | Accepted |
-| [0017](docs/adr/0017-subdomain-artifact-addressing.md)      | Subdomain artifact addressing (`{slug\|label}.{root}`), host-router rewrite                                     | Accepted |
-| [0018](docs/adr/0018-anonymous-vpn-gated-visibility.md)     | Anonymous, VPN-gated `LINK` visibility (the one `CanView` carve-out)                                            | Accepted |
-| [0019](docs/adr/0019-invite-by-email-grants.md)             | Invite-by-email grants (email or subject; verified email matched in `CanView`)                                  | Accepted |
-| [0020](docs/adr/0020-cli-public-client-and-refresh.md)      | CLI public-client login (discovery + PKCE) + refresh tokens; `/me`, `/artifacts` (extends 0007)                 | Accepted |
-| [0021](docs/adr/0021-cli-upgrade-version-check.md)          | CLI `upgrade` check + `GET /version` (deployed version + min-CLI/capabilities compat contract)                  | Accepted |
-| [0022](docs/adr/0022-observability-and-server-lifecycle.md) | Server timeouts + graceful shutdown; `slog` request logs + Prometheus `/metrics` (route labels via `r.Pattern`) | Accepted |
+| ADR                                                         | Decision                                                                                                                                          | Status   |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
+| [0001](docs/adr/0001-monorepo-structure.md)                 | Monorepo with per-service isolation                                                                                                               | Accepted |
+| [0002](docs/adr/0002-auth-model.md)                         | Pluggable OIDC/local/forward-auth + per-artifact RBAC (diverges from JWT+API-key default)                                                         | Accepted |
+| [0006](docs/adr/0006-s3-blob-adapter-backend-only.md)       | Selectable file/S3 blob store, backend-only (no presigned URLs; every byte gated + audited)                                                       | Accepted |
+| [0009](docs/adr/0009-postgres-store-adapter.md)             | Selectable file/Postgres store (GORM, auto-migrating; label UNIQUE constraint)                                                                    | Accepted |
+| [0017](docs/adr/0017-subdomain-artifact-addressing.md)      | Subdomain artifact addressing (`{slug\|label}.{root}`), host-router rewrite                                                                       | Accepted |
+| [0018](docs/adr/0018-anonymous-vpn-gated-visibility.md)     | Anonymous, VPN-gated `LINK` visibility (the one `CanView` carve-out)                                                                              | Accepted |
+| [0019](docs/adr/0019-invite-by-email-grants.md)             | Invite-by-email grants (email or subject; verified email matched in `CanView`)                                                                    | Accepted |
+| [0020](docs/adr/0020-cli-public-client-and-refresh.md)      | CLI public-client login (discovery + PKCE) + refresh tokens; `/me`, `/artifacts` (extends 0007)                                                   | Accepted |
+| [0021](docs/adr/0021-cli-upgrade-version-check.md)          | CLI `upgrade` check + `GET /version` (deployed version + min-CLI/capabilities compat contract)                                                    | Accepted |
+| [0022](docs/adr/0022-observability-and-server-lifecycle.md) | Server timeouts + graceful shutdown; `slog` request logs + Prometheus `/metrics` (route labels via `r.Pattern`)                                   | Accepted |
+| [0025](docs/adr/0025-artifact-search-and-pagination.md)     | Artifact search (`GET /artifacts/search`) + page-based pagination (`common/v1`); `Store.SearchArtifacts` with SQL pushdown; persist `owner_email` | Accepted |

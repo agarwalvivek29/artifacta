@@ -26,21 +26,24 @@ func putArtifact(t *testing.T, srv *Server, slug, owner, title string, vis artif
 	}
 }
 
-// sectionBody returns the slice of html between the <h2>heading</h2> marker and
-// the next <h2> (or end of doc), so a test can assert an artifact lands in the
-// intended dashboard section.
-func sectionBody(t *testing.T, html, heading string) string {
+// entryFor returns the JS object literal for slug from the dashboard's
+// window.__ARTIFACTS__ data island (each artifact is one {slug:"…",…,type:"…"}
+// entry, rendered client-side into the card / list views). The test asserts an
+// artifact carries the intended section type, replacing the old server-rendered
+// <h2> section check.
+func entryFor(t *testing.T, html, slug string) string {
 	t.Helper()
-	marker := "<h2>" + heading + "</h2>"
-	i := strings.Index(html, marker)
+	key := `slug:"` + slug + `"`
+	i := strings.Index(html, key)
 	if i < 0 {
-		t.Fatalf("section heading %q not found in dashboard", heading)
+		t.Fatalf("artifact %q not present in dashboard data island", slug)
 	}
-	rest := html[i+len(marker):]
-	if j := strings.Index(rest, "<h2>"); j >= 0 {
-		return rest[:j]
+	start := strings.LastIndex(html[:i], "{")
+	end := strings.Index(html[i:], "}")
+	if start < 0 || end < 0 {
+		t.Fatalf("could not bound data-island entry for %q", slug)
 	}
-	return rest
+	return html[start : i+end+1]
 }
 
 func TestDashboardAuthenticatedRendersThreeSections(t *testing.T) {
@@ -72,34 +75,33 @@ func TestDashboardAuthenticatedRendersThreeSections(t *testing.T) {
 	}
 	body := rr.Body.String()
 
-	mine := sectionBody(t, body, "Mine")
-	shared := sectionBody(t, body, "Shared with me")
-	org := sectionBody(t, body, "Org")
-
-	if !strings.Contains(mine, `href="/a/mineslug1"`) {
-		t.Fatalf("owned artifact missing from Mine section:\n%s", mine)
+	// Each artifact lands in the data island tagged with its section type; the
+	// controller renders that into the Mine / Shared / Org views.
+	if e := entryFor(t, body, "mineslug1"); !strings.Contains(e, `type:"mine"`) {
+		t.Fatalf("owned artifact not tagged type:mine:\n%s", e)
 	}
-	if !strings.Contains(shared, `href="/a/sharedslug1"`) {
-		t.Fatalf("granted artifact missing from Shared section:\n%s", shared)
+	if e := entryFor(t, body, "sharedslug1"); !strings.Contains(e, `type:"shared"`) {
+		t.Fatalf("granted artifact not tagged type:shared:\n%s", e)
 	}
-	if !strings.Contains(org, `href="/a/orgslug1"`) {
-		t.Fatalf("org artifact missing from Org section:\n%s", org)
+	if e := entryFor(t, body, "orgslug1"); !strings.Contains(e, `type:"org"`) {
+		t.Fatalf("org artifact not tagged type:org:\n%s", e)
 	}
 	// The caller's own org artifact appears under Mine, not duplicated in Org.
-	if !strings.Contains(mine, `href="/a/myorgslug"`) {
-		t.Fatalf("caller's own org artifact missing from Mine:\n%s", mine)
+	if e := entryFor(t, body, "myorgslug"); !strings.Contains(e, `type:"mine"`) {
+		t.Fatalf("caller's own org artifact not tagged type:mine:\n%s", e)
 	}
-	if strings.Contains(org, `href="/a/myorgslug"`) {
-		t.Fatalf("caller's own org artifact duplicated into Org:\n%s", org)
+	if got := strings.Count(body, `slug:"myorgslug"`); got != 1 {
+		t.Fatalf("caller's own org artifact appears %d times, want exactly 1 (no Org duplicate)", got)
 	}
 
-	// html/template must escape the user-controlled title — the raw tag must NOT
-	// appear, only its escaped form.
+	// html/template must escape the user-controlled title in the JS string
+	// context — the raw <script> tag must NOT appear; the title content survives
+	// only in escaped form.
 	if strings.Contains(body, "<script>alert(1)</script>") {
 		t.Fatalf("artifact title was NOT escaped (raw <script> present):\n%s", body)
 	}
-	if !strings.Contains(body, "&lt;script&gt;alert(1)&lt;/script&gt;") {
-		t.Fatalf("escaped title not found in dashboard:\n%s", body)
+	if !strings.Contains(body, `alert(1)`) {
+		t.Fatalf("escaped title content not found in dashboard data island:\n%s", body)
 	}
 }
 
@@ -123,7 +125,7 @@ func TestDashboardUnauthenticatedRendersSignin(t *testing.T) {
 		t.Fatalf("sign-in page missing link to /login:\n%s", body)
 	}
 	// The dashboard must not render for an unauthenticated caller.
-	if strings.Contains(body, "<h2>Mine</h2>") {
+	if strings.Contains(body, "__ARTIFACTS__") || strings.Contains(body, `id="board"`) {
 		t.Fatalf("dashboard leaked to unauthenticated caller:\n%s", body)
 	}
 }

@@ -8,6 +8,7 @@ import (
 
 	artifactav1 "github.com/agarwalvivek29/here.now/packages/schema/generated/go/artifacta/v1"
 	"github.com/agarwalvivek29/here.now/services/artifacta-api/internal/api"
+	"github.com/agarwalvivek29/here.now/services/artifacta-api/internal/domain"
 	"github.com/agarwalvivek29/here.now/services/artifacta-api/internal/infra"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -150,6 +151,78 @@ func runStoreConformance(t *testing.T, st api.Store) {
 	}
 	if containsSlug(privList, slugOrg) {
 		t.Fatal("ListByVisibility(PRIVATE) leaked an ORG artifact")
+	}
+
+	// Search (ADR-0025): identical behaviour on both backends. Uses a unique token
+	// so assertions are absolute even on a shared, non-empty store. Covers the text
+	// filter, owner_email match, owner-scoped grantee match (the leak defense),
+	// visibility filter, and pagination.
+	tok := k + "srch"
+	searcher := k + "searcher"
+	for i, name := range []string{"a", "b", "c"} {
+		if err := st.PutArtifact(&artifactav1.Artifact{
+			Slug: tok + name, OwnerSub: searcher, OwnerEmail: searcher + "@x.co",
+			Title: tok + " " + name, Visibility: artifactav1.Visibility_VISIBILITY_PRIVATE,
+			LatestVersion: 1, CreatedAt: timestamppb.New(time.Unix(int64(1_700_000_000+i), 0)),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// A grantee on the searcher's OWN artifact (matchable) and a foreign org
+	// artifact with a grantee bearing the same token (must NOT be matchable).
+	if err := st.AddGrant(&artifactav1.Grant{Slug: tok + "a", GranteeEmail: tok + "own@x.co"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.PutArtifact(&artifactav1.Artifact{
+		Slug: tok + "foreign", OwnerSub: k + "stranger", OwnerEmail: k + "stranger@x.co",
+		Title: "unrelated", Visibility: artifactav1.Visibility_VISIBILITY_ORG,
+		LatestVersion: 1, CreatedAt: timestamppb.New(time.Unix(1_700_000_009, 0)),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.AddGrant(&artifactav1.Grant{Slug: tok + "foreign", GranteeEmail: tok + "foreign@x.co"}); err != nil {
+		t.Fatal(err)
+	}
+
+	mkQ := func(text, email string) domain.SearchQuery {
+		q := domain.SearchQuery{ViewerSub: searcher, ViewerEmail: searcher + "@x.co", Text: text, Email: email}
+		q.Normalize()
+		return q
+	}
+	// Text filter: the three token artifacts (searcher owns them, so they are visible).
+	if items, total, err := st.SearchArtifacts(mkQ(tok+" ", "")); err != nil || total != 3 || len(items) != 3 {
+		t.Fatalf("SearchArtifacts text = %d items/%d total (err %v), want 3/3", len(items), total, err)
+	}
+	// owner_email match (unique prefix → exactly the searcher's three).
+	if _, total, err := st.SearchArtifacts(mkQ("", searcher+"@x.co")); err != nil || total != 3 {
+		t.Fatalf("SearchArtifacts owner_email total = %d (err %v), want 3", total, err)
+	}
+	// grantee_email on the searcher's OWN artifact matches exactly one.
+	if items, total, err := st.SearchArtifacts(mkQ("", tok+"own@x.co")); err != nil || total != 1 || items[0].GetSlug() != tok+"a" {
+		t.Fatalf("SearchArtifacts own grantee = %v/%d (err %v), want [%sa]/1", func() []string {
+			var s []string
+			for _, a := range items {
+				s = append(s, a.GetSlug())
+			}
+			return s
+		}(), total, err, tok)
+	}
+	// CRITICAL: a foreign org artifact's grantee email must NOT be matchable even
+	// though the searcher can see the artifact (grant-list leak defense, ADR-0025).
+	if _, total, err := st.SearchArtifacts(mkQ("", tok+"foreign@x.co")); err != nil || total != 0 {
+		t.Fatalf("SearchArtifacts foreign grantee total = %d (err %v), want 0 (no leak)", total, err)
+	}
+	// Pagination: token text, page_size 2 → page 1 has 2, page 2 has 1, total 3 both.
+	q1 := mkQ(tok+" ", "")
+	q1.PageSize = 2
+	q1.Page = 1
+	if items, total, err := st.SearchArtifacts(q1); err != nil || total != 3 || len(items) != 2 {
+		t.Fatalf("SearchArtifacts page1 = %d items/%d total (err %v), want 2/3", len(items), total, err)
+	}
+	q2 := q1
+	q2.Page = 2
+	if items, total, err := st.SearchArtifacts(q2); err != nil || total != 3 || len(items) != 1 {
+		t.Fatalf("SearchArtifacts page2 = %d items/%d total (err %v), want 1/3", len(items), total, err)
 	}
 
 	// Versions: append + ordered list + get.

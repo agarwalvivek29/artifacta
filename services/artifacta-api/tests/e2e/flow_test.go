@@ -216,10 +216,12 @@ func TestEndToEndPublishViewShareAuditFlow(t *testing.T) {
 	if code != http.StatusOK {
 		t.Fatalf("dashboard as alice: got %d, want 200", code)
 	}
-	if !strings.Contains(dash, "<h2>Mine</h2>") {
-		t.Fatalf("dashboard as alice missing Mine section: %s", dash)
+	if !strings.Contains(dash, `id="board"`) {
+		t.Fatalf("dashboard as alice did not render (no board): %s", dash)
 	}
-	if !strings.Contains(dash, "/a/"+slug) || !strings.Contains(dash, ">Report<") {
+	// The published artifact is in the data island the controller renders from,
+	// tagged as the caller's own (type:"mine").
+	if !strings.Contains(dash, `slug:"`+slug+`"`) || !strings.Contains(dash, `title:"Report"`) {
 		t.Fatalf("dashboard as alice missing published artifact %q: %s", slug, dash)
 	}
 
@@ -232,7 +234,7 @@ func TestEndToEndPublishViewShareAuditFlow(t *testing.T) {
 	if !strings.Contains(landing, `href="/login"`) || !strings.Contains(landing, "ArtifactA") {
 		t.Fatalf("anonymous root is not the sign-in page: %s", landing)
 	}
-	if strings.Contains(landing, "<h2>Mine</h2>") {
+	if strings.Contains(landing, "__ARTIFACTS__") || strings.Contains(landing, `id="board"`) {
 		t.Fatalf("anonymous root leaked the dashboard: %s", landing)
 	}
 
@@ -247,4 +249,141 @@ func TestEndToEndPublishViewShareAuditFlow(t *testing.T) {
 		t.Fatalf("audit chain verified %d events, want >= 6 (publish + views + shares)", verified)
 	}
 	t.Logf("audit chain verified: %d events", verified)
+}
+
+// TestEndToEndSearch drives GET /artifacts/search end-to-end (ADR-0024): a caller
+// searches over their visible set (owned + shared-with-me + org) with text, email,
+// and pagination filters, and the grant-list-leak defense holds — a grantee's email
+// on an artifact the caller does not own is never matchable.
+func TestEndToEndSearch(t *testing.T) {
+	h := newHarness(t)
+
+	// searchPage is the protojson (snake_case) shape of SearchArtifactsResponse.
+	type searchPage struct {
+		Items []struct {
+			Slug       string `json:"slug"`
+			Title      string `json:"title"`
+			OwnerEmail string `json:"owner_email"`
+		} `json:"items"`
+		Page struct {
+			Total    int  `json:"total"`
+			HasNext  bool `json:"has_next"`
+			PageSize int  `json:"page_size"`
+		} `json:"page"`
+	}
+	search := func(sub, query string) searchPage {
+		code, body := h.do(t, http.MethodGet, "/artifacts/search"+query, sub, "", "")
+		if code != http.StatusOK {
+			t.Fatalf("search %q as %s: got %d, want 200 (body %q)", query, sub, code, body)
+		}
+		var p searchPage
+		if err := json.Unmarshal([]byte(body), &p); err != nil {
+			t.Fatalf("decode search: %v (body %s)", err, body)
+		}
+		return p
+	}
+	hasTitle := func(p searchPage, title string) bool {
+		for _, it := range p.Items {
+			if it.Title == title {
+				return true
+			}
+		}
+		return false
+	}
+
+	// alice publishes three artifacts.
+	publish := func(title string) string {
+		code, body := h.do(t, http.MethodPost, "/artifacts?title="+title, alice, "text/html; charset=utf-8", "<p>"+title+"</p>")
+		if code != http.StatusCreated {
+			t.Fatalf("publish %q: got %d (body %q)", title, code, body)
+		}
+		var pub struct {
+			Slug string `json:"slug"`
+		}
+		if err := json.Unmarshal([]byte(body), &pub); err != nil {
+			t.Fatalf("decode publish: %v", err)
+		}
+		return pub.Slug
+	}
+	budgetSlug := publish("Budget")
+	publish("Q3Deck")
+	publish("Roadmap")
+
+	// alice shares Budget (flip to invited, then invite bob AND carol by email).
+	if code, b := h.do(t, http.MethodPatch, "/artifacts/"+budgetSlug+"/visibility", alice, "application/json", `{"visibility":"invited"}`); code != http.StatusOK {
+		t.Fatalf("set visibility invited: got %d (%s)", code, b)
+	}
+	for _, invitee := range []string{bob, carol} {
+		if code, b := h.do(t, http.MethodPost, "/artifacts/"+budgetSlug+"/grants", alice, "application/json", `{"email":"`+invitee+`@corp.example"}`); code != http.StatusCreated {
+			t.Fatalf("grant to %s: got %d (%s)", invitee, code, b)
+		}
+	}
+
+	// bob sees Budget (shared with him by email) but not alice's private ones.
+	if p := search(bob, "?q=budget"); !hasTitle(p, "Budget") || len(p.Items) != 1 {
+		t.Fatalf("bob ?q=budget = %+v, want just [Budget]", p.Items)
+	}
+	if p := search(bob, "?q=q3"); len(p.Items) != 0 {
+		t.Fatalf("bob ?q=q3 = %+v, want none (not shared with bob)", p.Items)
+	}
+	// bob can match Budget by its owner's email (alice published it).
+	if p := search(bob, "?email=user:alice@corp.example"); !hasTitle(p, "Budget") {
+		t.Fatalf("bob ?email=alice = %+v, want [Budget]", p.Items)
+	}
+
+	// CRITICAL leak defense: bob is a grantee of Budget, but does NOT own it, so he
+	// must not be able to match Budget by another grantee's (carol's) email.
+	if p := search(bob, "?email=user:carol@corp.example"); len(p.Items) != 0 {
+		t.Fatalf("bob ?email=carol leaked a foreign share-list: %+v, want none", p.Items)
+	}
+
+	// alice (the owner) CAN match Budget by bob's grantee email.
+	if p := search(alice, "?email=user:bob@corp.example"); !hasTitle(p, "Budget") {
+		t.Fatalf("alice ?email=bob = %+v, want [Budget] (she owns it)", p.Items)
+	}
+
+	// Pagination over alice's three artifacts.
+	p1 := search(alice, "?page=1&page_size=2")
+	if p1.Page.Total != 3 || len(p1.Items) != 2 || !p1.Page.HasNext {
+		t.Fatalf("alice page1 = %+v (items %d), want total3/2items/hasNext", p1.Page, len(p1.Items))
+	}
+	p2 := search(alice, "?page=2&page_size=2")
+	if len(p2.Items) != 1 || p2.Page.HasNext {
+		t.Fatalf("alice page2 = %+v (items %d), want 1 item/!hasNext", p2.Page, len(p2.Items))
+	}
+
+	// Fail closed: anonymous search is 401.
+	if code, _ := h.do(t, http.MethodGet, "/artifacts/search", "", "", ""); code != http.StatusUnauthorized {
+		t.Fatalf("anon search: got %d, want 401", code)
+	}
+}
+
+// TestEndToEndSearchByDescription: an artifact published with a ?description= is
+// findable by a word that appears only in the description (ADR-0025) — the point
+// of the field, so an agent can locate a past artifact by more than its title.
+func TestEndToEndSearchByDescription(t *testing.T) {
+	h := newHarness(t)
+
+	code, body := h.do(t, http.MethodPost,
+		"/artifacts?title=Meeting+Notes&description=quarterly+revenue+analysis+and+forecast",
+		alice, "text/html; charset=utf-8", "<p>notes</p>")
+	if code != http.StatusCreated {
+		t.Fatalf("publish with description: got %d (%s)", code, body)
+	}
+	var pub struct {
+		Slug string `json:"slug"`
+	}
+	if err := json.Unmarshal([]byte(body), &pub); err != nil {
+		t.Fatalf("decode publish: %v", err)
+	}
+
+	// A word only in the description matches; the metadata echoes the description.
+	code, body = h.do(t, http.MethodGet, "/artifacts/search?q=revenue", alice, "", "")
+	if code != http.StatusOK || !strings.Contains(body, `"slug":"`+pub.Slug+`"`) {
+		t.Fatalf("search by description word: got %d, body %s", code, body)
+	}
+	code, meta := h.do(t, http.MethodGet, "/artifacts/"+pub.Slug, alice, "", "")
+	if code != http.StatusOK || !strings.Contains(meta, "quarterly revenue analysis and forecast") {
+		t.Fatalf("metadata missing description: got %d, body %s", code, meta)
+	}
 }

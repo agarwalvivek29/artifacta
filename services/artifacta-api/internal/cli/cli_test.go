@@ -18,11 +18,12 @@ func TestPublishRemoteSendsBearerAndReturnsURL(t *testing.T) {
 	const wantURL = "https://here.now/a/abc123"
 	const payload = "<h1>hi here.now</h1>"
 
-	var gotMethod, gotAuth, gotTitle, gotBody string
+	var gotMethod, gotAuth, gotTitle, gotDesc, gotBody string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotMethod = r.Method
 		gotAuth = r.Header.Get("Authorization")
 		gotTitle = r.URL.Query().Get("title")
+		gotDesc = r.URL.Query().Get("description")
 		b, _ := io.ReadAll(r.Body)
 		gotBody = string(b)
 		w.Header().Set("Content-Type", "application/json")
@@ -36,7 +37,7 @@ func TestPublishRemoteSendsBearerAndReturnsURL(t *testing.T) {
 		t.Fatalf("write temp file: %v", err)
 	}
 
-	gotURL, err := publishRemote(srv.URL, token, path)
+	gotURL, err := publishRemote(srv.URL, token, path, "a page for testing")
 	if err != nil {
 		t.Fatalf("publishRemote: %v", err)
 	}
@@ -51,6 +52,9 @@ func TestPublishRemoteSendsBearerAndReturnsURL(t *testing.T) {
 	}
 	if gotTitle != "index.html" {
 		t.Fatalf("title = %q, want %q", gotTitle, "index.html")
+	}
+	if gotDesc != "a page for testing" {
+		t.Fatalf("description = %q, want %q", gotDesc, "a page for testing")
 	}
 	if gotBody != payload {
 		t.Fatalf("uploaded body = %q, want %q", gotBody, payload)
@@ -70,7 +74,7 @@ func TestPublishRemoteErrorsOnNon201(t *testing.T) {
 		t.Fatalf("write temp file: %v", err)
 	}
 
-	if _, err := publishRemote(srv.URL, "tok", path); err == nil {
+	if _, err := publishRemote(srv.URL, "tok", path, ""); err == nil {
 		t.Fatalf("publishRemote: expected error on 401, got nil")
 	}
 }
@@ -595,7 +599,7 @@ func TestPublishRemoteSendsDerivedContentType(t *testing.T) {
 	if err := os.WriteFile(path, []byte("<svg/>"), 0o600); err != nil {
 		t.Fatalf("write temp file: %v", err)
 	}
-	if _, err := publishRemote(srv.URL, "tok", path); err != nil {
+	if _, err := publishRemote(srv.URL, "tok", path, ""); err != nil {
 		t.Fatalf("publishRemote: %v", err)
 	}
 	if gotCT != "image/svg+xml" {

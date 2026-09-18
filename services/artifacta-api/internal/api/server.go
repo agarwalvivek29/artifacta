@@ -21,6 +21,7 @@ import (
 	"unicode/utf8"
 
 	artifactav1 "github.com/agarwalvivek29/here.now/packages/schema/generated/go/artifacta/v1"
+	commonv1 "github.com/agarwalvivek29/here.now/packages/schema/generated/go/common/v1"
 	"github.com/agarwalvivek29/here.now/services/artifacta-api/internal/domain"
 	"github.com/agarwalvivek29/here.now/services/artifacta-api/internal/render"
 	"github.com/agarwalvivek29/here.now/services/artifacta-api/internal/web"
@@ -52,6 +53,12 @@ type Store interface {
 	ListByOwner(sub string) ([]*artifactav1.Artifact, error)
 	ListByGrantee(sub string) ([]*artifactav1.Artifact, error)
 	ListByVisibility(v artifactav1.Visibility) ([]*artifactav1.Artifact, error)
+	// SearchArtifacts (ADR-0025) returns one page of the caller's visible set
+	// (owned ∪ shared-with-me ∪ org, deduped) matching q, plus the total match
+	// count. Visibility is enforced in the query — results are always a subset of
+	// what CanView permits — and grantee emails are matched only on the viewer's
+	// own artifacts, never a foreign share-list.
+	SearchArtifacts(q domain.SearchQuery) (items []*artifactav1.Artifact, total int, err error)
 	// Custom subdomain labels (ADR-0017): claim a globally-unique label for a
 	// slug (false = already taken / no such artifact) and resolve label → slug.
 	SetLabel(slug, label string) (bool, error)
@@ -212,6 +219,10 @@ func (s *Server) Routes() http.Handler {
 	// Caller's own artifacts (powers remote `artifacta ls`) and the authenticated
 	// identity probe (powers `artifacta doctor` / `whoami`). Both fail closed 401.
 	mux.Handle("GET /artifacts", rateLimit(http.HandlerFunc(s.listArtifacts), contentPerMinute))
+	// Paginated search over the caller's visible set (ADR-0025). The literal path
+	// takes precedence over GET /artifacts/{slug} in the Go 1.22 mux, so it never
+	// shadows the metadata route. Fail-closed 401.
+	mux.Handle("GET /artifacts/search", rateLimit(http.HandlerFunc(s.searchArtifacts), contentPerMinute))
 	mux.Handle("GET /me", rateLimit(http.HandlerFunc(s.me), contentPerMinute))
 	// Audit (remote `artifacta audit verify`): the caller's OWN audit rows so they
 	// can verify per-row integrity client-side. Owner-scoped, fail-closed 401.
@@ -322,11 +333,20 @@ func toViews(arts []*artifactav1.Artifact) []web.ArtifactView {
 }
 
 func toView(a *artifactav1.Artifact) web.ArtifactView {
+	created := ""
+	if a.GetCreatedAt() != nil {
+		created = a.GetCreatedAt().AsTime().UTC().Format("2006-01-02")
+	}
 	return web.ArtifactView{
-		Slug:       a.GetSlug(),
-		Title:      a.GetTitle(),
-		Visibility: visibilityLabel(a.GetVisibility()),
-		Version:    a.GetLatestVersion(),
+		Slug:        a.GetSlug(),
+		Title:       a.GetTitle(),
+		Visibility:  visibilityLabel(a.GetVisibility()),
+		Version:     a.GetLatestVersion(),
+		Created:     created,
+		ContentType: a.GetContentType(),
+		Description: a.GetDescription(),
+		OwnerEmail:  a.GetOwnerEmail(),
+		ViaUpload:   a.GetViaUpload(),
 	}
 }
 
@@ -504,6 +524,7 @@ func (s *Server) publish(w http.ResponseWriter, r *http.Request) {
 	if title == "" {
 		title = "untitled"
 	}
+	description := r.URL.Query().Get("description") // optional publisher metadata (ADR-0025)
 	ct := r.Header.Get("Content-Type")
 	if ct == "" {
 		ct = "text/html; charset=utf-8"
@@ -532,7 +553,7 @@ func (s *Server) publish(w http.ResponseWriter, r *http.Request) {
 	// ES modules bundled, under the egress posture. Never blocks a publish.
 	bundled, bundledCT, _, _ := render.Prepare(body, ct, render.Options{Egress: s.Egress})
 
-	if err := s.storeArtifact(who, slug, title, bundledCT, bundled); err != nil {
+	if err := s.storeArtifact(who, slug, title, description, bundledCT, bundled, false); err != nil {
 		http.Error(w, "unavailable", http.StatusInternalServerError)
 		return
 	}
@@ -598,12 +619,13 @@ func (s *Server) publishUpload(w http.ResponseWriter, r *http.Request, who *arti
 	if title == "" {
 		title = hdr.Filename
 	}
+	description := strings.TrimSpace(r.FormValue("description")) // optional (ADR-0025)
 
 	slug := domain.NewSlug()
 	// HTML runs the render-parity pipeline (fail-soft); non-HTML is stored as-is.
 	bundled, storedCT, _, _ := render.Prepare(body, ct, render.Options{Egress: s.Egress})
 
-	if err := s.storeArtifact(who, slug, title, storedCT, bundled); err != nil {
+	if err := s.storeArtifact(who, slug, title, description, storedCT, bundled, true); err != nil {
 		http.Error(w, "unavailable", http.StatusInternalServerError)
 		return
 	}
@@ -615,7 +637,7 @@ func (s *Server) publishUpload(w http.ResponseWriter, r *http.Request, who *arti
 // audits PUBLISH. Shared by the CLI raw path and the browser upload path so both
 // converge on one storage + audit code path. On any store error it audits DENY
 // and returns the error for the caller to surface as a 500.
-func (s *Server) storeArtifact(who *artifactav1.Identity, slug, title, ct string, bundled []byte) error {
+func (s *Server) storeArtifact(who *artifactav1.Identity, slug, title, description, ct string, bundled []byte, viaUpload bool) error {
 	const firstVersion = 1
 	if err := s.Blob.Put(slug, firstVersion, bytes.NewReader(bundled)); err != nil {
 		s.audit(who, slug, artifactav1.AuditAction_AUDIT_ACTION_DENY, false)
@@ -625,11 +647,14 @@ func (s *Server) storeArtifact(who *artifactav1.Identity, slug, title, ct string
 	art := &artifactav1.Artifact{
 		Slug:          slug,
 		OwnerSub:      who.GetSub(),
+		OwnerEmail:    who.GetEmail(), // denormalized for search (ADR-0025); server-derived, never client-asserted
 		Title:         title,
+		Description:   description,                               // optional publisher metadata, searchable (ADR-0025)
 		Visibility:    artifactav1.Visibility_VISIBILITY_PRIVATE, // private by default
 		ContentType:   ct,
 		CreatedAt:     now,
 		LatestVersion: firstVersion,
+		ViaUpload:     viaUpload, // gates UI "upload a new version" (ADR-0024)
 	}
 	if err := s.Store.AddVersion(&artifactav1.ArtifactVersion{
 		Slug: slug, N: firstVersion, ContentType: ct, CreatedAt: now, CreatedBy: who.GetSub(),
@@ -768,6 +793,112 @@ func (s *Server) listArtifacts(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(out)
 }
 
+// searchArtifacts backs GET /artifacts/search (ADR-0025): a paginated, filtered
+// view over the caller's visible set (owned ∪ shared-with-me ∪ org). Fail-closed
+// 401. Visibility is enforced in the store query, so results are always a subset
+// of what CanView permits; grantee-email matching is scoped to the caller's own
+// artifacts, never a foreign share-list.
+func (s *Server) searchArtifacts(w http.ResponseWriter, r *http.Request) {
+	who, ok := s.Auth.Identify(r)
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	qv := r.URL.Query()
+
+	var vis *artifactav1.Visibility
+	if v := qv.Get("visibility"); v != "" {
+		parsed, valid := parseVisibility(v)
+		if !valid {
+			http.Error(w, "invalid visibility", http.StatusBadRequest)
+			return
+		}
+		vis = &parsed
+	}
+
+	// sort_order defaults to descending (newest/last first) — the useful default
+	// for a created_at sort. An explicit "asc" flips it.
+	sortDesc := qv.Get("sort_order") != "asc"
+
+	q := domain.SearchQuery{
+		ViewerSub:   who.GetSub(),
+		ViewerEmail: who.GetEmail(),
+		Text:        qv.Get("q"),
+		Email:       qv.Get("email"),
+		Visibility:  vis,
+		Page:        atoiDefault(qv.Get("page"), 0),
+		PageSize:    atoiDefault(qv.Get("page_size"), 0),
+		SortBy:      qv.Get("sort_by"),
+		SortDesc:    sortDesc,
+	}
+	q.Normalize()
+
+	arts, total, err := s.Store.SearchArtifacts(q)
+	if err != nil {
+		http.Error(w, "unavailable", http.StatusInternalServerError)
+		return
+	}
+
+	resp := &artifactav1.SearchArtifactsResponse{
+		Items: make([]*artifactav1.ArtifactSummary, 0, len(arts)),
+		Page:  pageMeta(q.Page, q.PageSize, total),
+	}
+	for _, a := range arts {
+		resp.Items = append(resp.Items, &artifactav1.ArtifactSummary{
+			Slug:          a.GetSlug(),
+			Title:         a.GetTitle(),
+			Visibility:    visibilityLabel(a.GetVisibility()),
+			LatestVersion: a.GetLatestVersion(),
+			Url:           s.BaseURL + "/a/" + a.GetSlug(),
+			Label:         a.GetLabel(),
+			OwnerEmail:    a.GetOwnerEmail(),
+			CreatedAt:     a.GetCreatedAt(),
+			Description:   a.GetDescription(),
+		})
+	}
+
+	// EmitUnpopulated keeps the pagination meta (and empty items array) fully
+	// present so clients get a stable shape; UseProtoNames keeps snake_case field
+	// names consistent with the other JSON endpoints.
+	body, err := (protojson.MarshalOptions{EmitUnpopulated: true, UseProtoNames: true}).Marshal(resp)
+	if err != nil {
+		http.Error(w, "unavailable", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write(body)
+}
+
+// pageMeta builds the common.v1 pagination meta for a result set of `total` items
+// windowed at (page, pageSize). total_pages is ceil(total/pageSize).
+func pageMeta(page, pageSize int32, total int) *commonv1.PaginationMeta {
+	var totalPages int32
+	if pageSize > 0 {
+		totalPages = int32((total + int(pageSize) - 1) / int(pageSize))
+	}
+	return &commonv1.PaginationMeta{
+		Page:       page,
+		PageSize:   pageSize,
+		Total:      int32(total),
+		TotalPages: totalPages,
+		HasNext:    page < totalPages,
+		HasPrev:    page > 1,
+	}
+}
+
+// atoiDefault parses s as a base-10 int32, returning def when s is empty or
+// invalid. Range/clamping is the caller's job (SearchQuery.Normalize).
+func atoiDefault(s string, def int32) int32 {
+	if s == "" {
+		return def
+	}
+	n, err := strconv.Atoi(s)
+	if err != nil {
+		return def
+	}
+	return int32(n)
+}
+
 // auditEvents backs GET /audit: the caller's OWN audit rows — events where the
 // caller is the principal, or the event is about an artifact they own — in seq
 // order, each re-marshaled to protojson so the CLI can recompute the hash and
@@ -852,6 +983,14 @@ func (s *Server) addVersion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Browser "upload a new version" (ADR-0024): a multipart/form-data body is the
+	// dashboard version-upload form. Gated to upload-created artifacts. The raw-body
+	// path below (CLI, Bearer) is unchanged.
+	if isMultipartForm(r) {
+		s.addVersionUpload(w, r, art, who)
+		return
+	}
+
 	ct := r.Header.Get("Content-Type")
 	if ct == "" {
 		ct = "text/html; charset=utf-8"
@@ -873,37 +1012,12 @@ func (s *Server) addVersion(w http.ResponseWriter, r *http.Request) {
 
 	// Render-parity, identical to publish (fail-soft), under the same egress mode.
 	bundled, bundledCT, _, _ := render.Prepare(body, ct, render.Options{Egress: s.Egress})
-	ct = bundledCT
 
-	n := art.GetLatestVersion() + 1
-	if err := s.Blob.Put(slug, n, bytes.NewReader(bundled)); err != nil {
-		s.audit(who, slug, artifactav1.AuditAction_AUDIT_ACTION_DENY, false)
+	n, err := s.appendVersion(who, art, bundledCT, note, bundled)
+	if err != nil {
 		http.Error(w, "unavailable", http.StatusInternalServerError)
 		return
 	}
-
-	now := timestamppb.Now()
-	if err := s.Store.AddVersion(&artifactav1.ArtifactVersion{
-		Slug:        slug,
-		N:           n,
-		ContentType: ct,
-		CreatedAt:   now,
-		CreatedBy:   who.GetSub(),
-		Note:        note,
-	}); err != nil {
-		s.audit(who, slug, artifactav1.AuditAction_AUDIT_ACTION_DENY, false)
-		http.Error(w, "unavailable", http.StatusInternalServerError)
-		return
-	}
-
-	art.LatestVersion = n
-	art.ContentType = ct
-	if err := s.Store.PutArtifact(art); err != nil {
-		s.audit(who, slug, artifactav1.AuditAction_AUDIT_ACTION_DENY, false)
-		http.Error(w, "unavailable", http.StatusInternalServerError)
-		return
-	}
-	s.audit(who, slug, artifactav1.AuditAction_AUDIT_ACTION_PUBLISH, true)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
@@ -912,6 +1026,92 @@ func (s *Server) addVersion(w http.ResponseWriter, r *http.Request) {
 		"version": n,
 		"url":     s.BaseURL + "/a/" + slug,
 	})
+}
+
+// appendVersion stores bundled as the next immutable version of art (n =
+// latest+1), records it, advances the artifact's latest_version + content_type,
+// and writes a PUBLISH audit event. Shared by the CLI/raw addVersion path and the
+// browser "upload a new version" path so both converge on one code path. On any
+// store error it audits DENY and returns the error for the caller to surface.
+func (s *Server) appendVersion(who *artifactav1.Identity, art *artifactav1.Artifact, ct, note string, bundled []byte) (int32, error) {
+	slug := art.GetSlug()
+	n := art.GetLatestVersion() + 1
+	if err := s.Blob.Put(slug, n, bytes.NewReader(bundled)); err != nil {
+		s.audit(who, slug, artifactav1.AuditAction_AUDIT_ACTION_DENY, false)
+		return 0, err
+	}
+	now := timestamppb.Now()
+	if err := s.Store.AddVersion(&artifactav1.ArtifactVersion{
+		Slug: slug, N: n, ContentType: ct, CreatedAt: now, CreatedBy: who.GetSub(), Note: note,
+	}); err != nil {
+		s.audit(who, slug, artifactav1.AuditAction_AUDIT_ACTION_DENY, false)
+		return 0, err
+	}
+	art.LatestVersion = n
+	art.ContentType = ct
+	if err := s.Store.PutArtifact(art); err != nil {
+		s.audit(who, slug, artifactav1.AuditAction_AUDIT_ACTION_DENY, false)
+		return 0, err
+	}
+	s.audit(who, slug, artifactav1.AuditAction_AUDIT_ACTION_PUBLISH, true)
+	return n, nil
+}
+
+// addVersionUpload handles the dashboard's "upload a new version" form (ADR-0024).
+// The owner gate is already applied by addVersion (via ownedArtifact). It is
+// additionally gated so the browser can only version artifacts it could have
+// created: the upload UI must be on, the request same-origin (CSRF), and the
+// artifact itself must be upload-created (via_upload) — CLI/API artifacts are not
+// version-editable from the browser and return 409. Appends v(n+1) from the
+// uploaded file (server-decided content type) and redirects to the artifact (PRG).
+func (s *Server) addVersionUpload(w http.ResponseWriter, r *http.Request, art *artifactav1.Artifact, who *artifactav1.Identity) {
+	if !s.UploadUI {
+		http.Error(w, "upload disabled", http.StatusBadRequest)
+		return
+	}
+	if !s.sameOrigin(r) {
+		http.Error(w, "bad origin", http.StatusForbidden)
+		return
+	}
+	if !art.GetViaUpload() {
+		http.Error(w, "this artifact isn't upload-managed — new versions come from the CLI", http.StatusConflict)
+		return
+	}
+
+	f, hdr, err := r.FormFile("file")
+	if err != nil {
+		var mbe *http.MaxBytesError
+		if errors.As(err, &mbe) {
+			http.Error(w, "file too large (max 25 MiB)", http.StatusRequestEntityTooLarge)
+			return
+		}
+		http.Error(w, "no file provided", http.StatusBadRequest)
+		return
+	}
+	defer f.Close()
+
+	ct, ok := uploadContentType(hdr.Filename)
+	if !ok {
+		http.Error(w, "unsupported file type — allowed: HTML, PDF, PNG, JPEG, GIF, WebP, SVG", http.StatusUnsupportedMediaType)
+		return
+	}
+	body, err := io.ReadAll(f)
+	if err != nil {
+		var mbe *http.MaxBytesError
+		if errors.As(err, &mbe) {
+			http.Error(w, "file too large (max 25 MiB)", http.StatusRequestEntityTooLarge)
+			return
+		}
+		http.Error(w, "unavailable", http.StatusInternalServerError)
+		return
+	}
+
+	bundled, storedCT, _, _ := render.Prepare(body, ct, render.Options{Egress: s.Egress})
+	if _, err := s.appendVersion(who, art, storedCT, "", bundled); err != nil {
+		http.Error(w, "unavailable", http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, "/a/"+art.GetSlug(), http.StatusSeeOther)
 }
 
 // metadata (ADR-0013) returns the artifact container plus its version list to any
@@ -991,6 +1191,7 @@ func (s *Server) metadata(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"slug":           art.GetSlug(),
 		"title":          art.GetTitle(),
+		"description":    art.GetDescription(),
 		"visibility":     visibilityLabel(art.GetVisibility()),
 		"latest_version": art.GetLatestVersion(),
 		"is_owner":       isOwner,

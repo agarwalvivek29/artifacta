@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	artifactav1 "github.com/agarwalvivek29/here.now/packages/schema/generated/go/artifacta/v1"
+	"github.com/agarwalvivek29/here.now/services/artifacta-api/internal/domain"
 	"github.com/jackc/pgx/v5/pgconn"
 	"google.golang.org/protobuf/encoding/protojson"
 	"gorm.io/driver/postgres"
@@ -30,6 +31,7 @@ import (
 type artifactRow struct {
 	Slug       string  `gorm:"primaryKey;size:64"`
 	OwnerSub   string  `gorm:"index;size:255"`
+	OwnerEmail string  `gorm:"index;size:255"` // denormalized from Artifact.owner_email for search (ADR-0025); may be empty on pre-0024 rows
 	Visibility int32   `gorm:"index"`
 	Label      *string `gorm:"uniqueIndex;size:63"` // nil = no label; NULLs don't collide, so the unique index IS the anti-double-assign guard
 	Data       string  `gorm:"type:jsonb"`          // protojson(Artifact)
@@ -110,14 +112,14 @@ func (s *SQLStore) PutArtifact(a *artifactav1.Artifact) error {
 	if err != nil {
 		return err
 	}
-	row := artifactRow{Slug: a.GetSlug(), OwnerSub: a.GetOwnerSub(), Visibility: int32(a.GetVisibility()), Data: string(data)}
+	row := artifactRow{Slug: a.GetSlug(), OwnerSub: a.GetOwnerSub(), OwnerEmail: a.GetOwnerEmail(), Visibility: int32(a.GetVisibility()), Data: string(data)}
 	if a.GetLabel() != "" {
 		l := a.GetLabel()
 		row.Label = &l
 	}
 	return s.db.Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "slug"}},
-		DoUpdates: clause.AssignmentColumns([]string{"owner_sub", "visibility", "label", "data"}),
+		DoUpdates: clause.AssignmentColumns([]string{"owner_sub", "owner_email", "visibility", "label", "data"}),
 	}).Create(&row).Error
 }
 
@@ -172,6 +174,83 @@ func (s *SQLStore) ListByGrantee(sub string) ([]*artifactav1.Artifact, error) {
 		return nil, nil
 	}
 	return s.listArtifacts("slug IN ?", slugs)
+}
+
+// SearchArtifacts (ADR-0025) runs the whole query — visibility union, filters,
+// count, and one page — in Postgres. Visibility is enforced in SQL so results are
+// always a subset of what CanView permits. Grantee-email matching is scoped to the
+// viewer's OWN artifacts via a join, so a foreign share-list is never probed.
+//
+// title / created_at live inside the jsonb `data` blob (the store is schema-first,
+// Rule 12), so they are read with the `->>` operator; owner_email / slug / label /
+// visibility are real columns. The result parity with FileStore's in-memory path
+// is verified by the store-conformance suite.
+func (s *SQLStore) SearchArtifacts(q domain.SearchQuery) ([]*artifactav1.Artifact, int, error) {
+	q.Normalize()
+
+	// applyScope builds a fresh query with the visible-set union + filters. It is
+	// rebuilt for Count and for the page fetch so a finisher on one never bleeds
+	// clauses into the other.
+	applyScope := func() *gorm.DB {
+		grantedSlugs := s.db.Model(&grantRow{}).Select("slug").
+			Where("grantee_sub = ? OR (grantee_email <> '' AND lower(grantee_email) = lower(?))", q.ViewerSub, q.ViewerEmail)
+		// Mirror CanView: owner (any visibility), ORG, or a grant on an INVITED
+		// artifact (a grant on a PRIVATE/LINK artifact does not admit the grantee).
+		db := s.db.Model(&artifactRow{}).
+			Where("owner_sub = ? OR visibility = ? OR (visibility = ? AND slug IN (?))",
+				q.ViewerSub,
+				int32(artifactav1.Visibility_VISIBILITY_ORG),
+				int32(artifactav1.Visibility_VISIBILITY_INVITED), grantedSlugs)
+
+		if q.Text != "" {
+			like := "%" + strings.ToLower(q.Text) + "%"
+			db = db.Where("lower(data->>'title') LIKE ? OR lower(slug) LIKE ? OR lower(coalesce(label,'')) LIKE ? OR lower(coalesce(data->>'description','')) LIKE ?", like, like, like, like)
+		}
+		if q.Email != "" {
+			like := "%" + strings.ToLower(q.Email) + "%"
+			// grantee_email is matched ONLY on the viewer's own artifacts (join to
+			// artifacts on owner_sub); owner_email is a plain column match.
+			ownedGrantees := s.db.Table("grants").Select("grants.slug").
+				Joins("JOIN artifacts ON artifacts.slug = grants.slug").
+				Where("artifacts.owner_sub = ? AND grants.grantee_email <> '' AND lower(grants.grantee_email) LIKE ?", q.ViewerSub, like)
+			db = db.Where("lower(coalesce(owner_email,'')) LIKE ? OR slug IN (?)", like, ownedGrantees)
+		}
+		if q.Visibility != nil {
+			db = db.Where("visibility = ?", int32(*q.Visibility))
+		}
+		return db
+	}
+
+	var total int64
+	if err := applyScope().Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	orderCol := "data->>'created_at'"
+	if q.SortBy == domain.SortByTitle {
+		orderCol = "lower(data->>'title')"
+	}
+	dir := "ASC"
+	if q.SortDesc {
+		dir = "DESC"
+	}
+	order := orderCol + " " + dir + ", slug ASC"
+
+	var rows []artifactRow
+	offset := int((q.Page - 1) * q.PageSize)
+	if err := applyScope().Order(order).Limit(int(q.PageSize)).Offset(offset).Find(&rows).Error; err != nil {
+		return nil, 0, err
+	}
+
+	out := make([]*artifactav1.Artifact, 0, len(rows))
+	for _, r := range rows {
+		a := &artifactav1.Artifact{}
+		if err := protojson.Unmarshal([]byte(r.Data), a); err != nil {
+			return nil, 0, err
+		}
+		out = append(out, a)
+	}
+	return out, int(total), nil
 }
 
 // ── labels (ADR-0017) ────────────────────────────────────────────────────────

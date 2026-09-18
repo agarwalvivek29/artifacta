@@ -222,6 +222,86 @@
       padding:9px 22px;font:inherit;font-size:14px;font-weight:600;cursor:pointer}
     .up-submit:hover{background:var(--accent-hover)}
     .up-submit:disabled{opacity:.45;cursor:not-allowed}
+
+    /* ── Toolbar (search · view toggle · per-page) ─────────────────── */
+    .toolbar{position:sticky;top:60px;z-index:15;display:flex;align-items:center;justify-content:space-between;
+      gap:16px;flex-wrap:wrap;margin:0 0 26px;padding:14px 0;background:color-mix(in srgb,var(--bg) 92%,transparent);backdrop-filter:blur(8px)}
+    .tb-title{display:flex;align-items:baseline;gap:9px;font-family:"IBM Plex Mono",monospace;font-size:12px;
+      font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+    .tb-controls{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+    .searchbox{display:flex;align-items:center;gap:8px;background:var(--surface);border:1px solid var(--line);
+      border-radius:10px;padding:0 12px;height:38px;min-width:230px}
+    .searchbox:focus-within{border-color:var(--accent)}
+    .searchbox svg{width:15px;height:15px;color:var(--muted);flex:none}
+    .searchbox input{border:none;outline:none;background:transparent;color:var(--ink);font:inherit;font-size:14px;width:100%}
+    .viewtoggle{display:inline-flex;background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:3px;gap:2px}
+    .viewtoggle button{display:inline-flex;align-items:center;gap:6px;border:1px solid transparent;border-radius:7px;
+      background:transparent;color:var(--muted);font:inherit;font-size:13px;font-weight:500;padding:6px 12px;cursor:pointer}
+    .viewtoggle button svg{width:15px;height:15px}
+    .viewtoggle button[aria-pressed="true"]{background:var(--surface);color:var(--ink);border-color:var(--line);box-shadow:0 1px 2px rgba(20,20,43,.06)}
+    .perpage{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;color:var(--muted)}
+    .perpage select{font:inherit;font-size:13px;color:var(--ink);background:var(--surface);border:1px solid var(--line);
+      border-radius:9px;padding:8px 9px;cursor:pointer}
+
+    /* collapsible section header (cards view) */
+    .sec-toggle{display:flex;align-items:center;gap:9px;width:100%;background:transparent;border:0;padding:0;margin:0 0 16px;
+      cursor:pointer;text-align:left;color:var(--muted)}
+    .sec-toggle h2{margin:0;font-family:"IBM Plex Mono",monospace;font-size:12px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+    .sec-toggle .chev{width:15px;height:15px;transition:transform .15s;color:var(--muted)}
+    .section.collapsed .sec-toggle .chev{transform:rotate(-90deg)}
+    .section.collapsed .grid,.section.collapsed .empty{display:none}
+
+    /* ── List / table view ────────────────────────────────────────── */
+    .tblwrap{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;box-shadow:var(--shadow)}
+    table.tbl{width:100%;border-collapse:collapse;font-size:14px}
+    .tbl thead th{background:var(--surface-2);text-align:left;
+      font-family:"IBM Plex Mono",monospace;font-size:10.5px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;
+      color:var(--muted);padding:0;border-bottom:1px solid var(--line);white-space:nowrap}
+    .tbl thead th .sortbtn{display:inline-flex;align-items:center;gap:6px;width:100%;background:transparent;border:0;
+      color:inherit;font:inherit;letter-spacing:.08em;text-transform:uppercase;padding:11px 14px;cursor:pointer}
+    .tbl thead th .sortbtn:hover{color:var(--ink)}
+    .tbl thead th .arr{opacity:.3;font-size:10px}
+    .tbl thead th[aria-sort] .arr{opacity:1;color:var(--accent)}
+    .tbl tr.filters th{padding:8px 10px;background:var(--surface);border-bottom:1px solid var(--line)}
+    .tbl tr.filters select,.tbl tr.filters input{width:100%;font:inherit;font-size:12.5px;color:var(--ink);
+      background:var(--surface-2);border:1px solid var(--line);border-radius:7px;padding:6px 8px;outline:none}
+    .tbl tr.filters select:focus,.tbl tr.filters input:focus{border-color:var(--accent)}
+    .tbl tbody td{padding:11px 14px;border-bottom:1px solid var(--line);vertical-align:middle}
+    .tbl tbody tr:last-child td{border-bottom:0}
+    .tbl tbody tr:hover{background:color-mix(in srgb,var(--surface-2) 55%,transparent)}
+    .tbl .c-title{font-weight:600;color:var(--ink);max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block}
+    .tbl tbody tr:hover .c-title{color:var(--accent)}
+    .tbl .c-slug{font-family:"IBM Plex Mono",monospace;font-size:11.5px;color:var(--muted)}
+    .tbl .c-actions{text-align:right;white-space:nowrap}
+    .tbl .c-actions .iconbtn{display:inline-grid;margin-left:6px}
+    .typechip{display:inline-flex;align-items:center;gap:6px;font-family:"IBM Plex Mono",monospace;font-size:10.5px;
+      font-weight:600;letter-spacing:.03em;text-transform:uppercase;padding:3px 9px;border-radius:999px;white-space:nowrap}
+    .typechip::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
+    .type-mine{color:var(--accent);background:color-mix(in srgb,var(--accent) 14%,transparent)}
+    .type-shared{color:var(--inv);background:var(--inv-bg)}
+    .type-org{color:var(--org);background:var(--org-bg)}
+    .kind{font-family:"IBM Plex Mono",monospace;font-size:10.5px;color:var(--muted);background:var(--surface-2);
+      border:1px solid var(--line);border-radius:6px;padding:2px 7px;white-space:nowrap}
+    .c-date{font-variant-numeric:tabular-nums;color:var(--muted);white-space:nowrap}
+
+    /* pager */
+    .pager{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:16px}
+    .pager .info{font-size:12.5px;color:var(--muted)}
+    .pager .nav{display:inline-flex;align-items:center;gap:6px}
+    .pager button{display:inline-grid;place-items:center;min-width:34px;height:34px;padding:0 10px;border:1px solid var(--line);
+      background:var(--surface);color:var(--ink);border-radius:9px;font:inherit;font-size:13px;cursor:pointer}
+    .pager button:hover:not(:disabled){border-color:var(--muted)}
+    .pager button[aria-current="true"]{background:var(--accent);color:var(--on-accent);border-color:transparent}
+    .pager button:disabled{opacity:.4;cursor:not-allowed}
+    @media (max-width:560px){.searchbox{min-width:0;flex:1}.tbl .c-hide-sm{display:none}}
+
+    /* description subtitle + owner byline (ADR-0025) */
+    .desc{font-size:12.5px;color:var(--muted);line-height:1.45;overflow:hidden;text-overflow:ellipsis;
+      display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+    .byline{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;color:var(--muted)}
+    .byline svg{width:12px;height:12px;flex:none;opacity:.8}
+    .byline .who{font-family:"IBM Plex Mono",monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:180px}
+    .tbl .c-desc{font-size:12px;color:var(--muted);max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block;margin-top:2px}
   </style>
 </head>
 <body>
@@ -247,56 +327,46 @@
   </header>
 
   <main>
-    {{define "grid"}}
-      <div class="grid">
-        {{range .}}
-        <div class="card">
-          <a class="thumb" href="/a/{{.Slug}}" aria-label="Open {{.Title}}">
-            <iframe src="/a/{{.Slug}}/raw?preview=1" sandbox="allow-scripts" loading="lazy" tabindex="-1" title="preview of {{.Title}}"></iframe>
-            <span class="scrim"></span>
-          </a>
-          <div class="meta">
-            <div class="row1">
-              <a class="title" href="/a/{{.Slug}}">{{.Title}}</a>
-              {{if gt .Version 0}}<span class="vchip" title="latest version">v{{.Version}}</span>{{end}}
-              <span class="pill pill-{{.Visibility}}">{{.Visibility}}</span>
-            </div>
-            <div class="row2">
-              <span class="slug">/a/{{.Slug}}</span>
-              {{if .IsOwner}}<button class="iconbtn share" data-slug="{{.Slug}}" data-title="{{.Title}}" type="button" title="Share" aria-label="Share">
-                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="18" cy="5" r="2.6" stroke="currentColor" stroke-width="2"/><circle cx="6" cy="12" r="2.6" stroke="currentColor" stroke-width="2"/><circle cx="18" cy="19" r="2.6" stroke="currentColor" stroke-width="2"/><path d="M8.3 10.8l7.4-4.3M8.3 13.2l7.4 4.3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-              </button>{{end}}
-              <button class="iconbtn copy" data-slug="{{.Slug}}" type="button" title="Copy link" aria-label="Copy link">
-                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M9 9h9a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-9a2 2 0 0 1-2-2v-1M15 4H6a2 2 0 0 0-2 2v9" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-              </button>
-            </div>
-          </div>
+    <div class="toolbar">
+      <div class="tb-title"><span id="tbHeading">Artifacts</span><span class="count" id="tbCount">0</span></div>
+      <div class="tb-controls">
+        <div class="searchbox">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/><path d="M20 20l-3.2-3.2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          <input id="search" type="search" placeholder="Search title or link…" autocomplete="off" spellcheck="false" aria-label="Search artifacts">
         </div>
-        {{end}}
+        <div class="viewtoggle" role="group" aria-label="View mode">
+          <button type="button" data-view="cards" aria-pressed="true" title="Card view">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>Cards
+          </button>
+          <button type="button" data-view="list" aria-pressed="false" title="List view">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01"/></svg>List
+          </button>
+        </div>
+        <label class="perpage">Per page
+          <select id="perPage" aria-label="Artifacts per page">
+            <option value="12">12</option><option value="24">24</option><option value="48">48</option><option value="0">All</option>
+          </select>
+        </label>
       </div>
-    {{end}}
-
-    <div class="section">
-      <div class="section-head"><h2>Mine</h2>{{if .Mine}}<span class="count">{{len .Mine}}</span>{{end}}</div>
-      {{if .Mine}}{{template "grid" .Mine}}{{else}}
-      <div class="empty">Nothing published yet. Ship one from your assistant or the CLI: <code>artifacta publish &lt;file&gt;</code></div>
-      {{end}}
     </div>
-
-    <div class="section">
-      <div class="section-head"><h2>Shared with me</h2>{{if .Shared}}<span class="count">{{len .Shared}}</span>{{end}}</div>
-      {{if .Shared}}{{template "grid" .Shared}}{{else}}
-      <div class="empty">When a teammate grants you an artifact, it shows up here.</div>
-      {{end}}
-    </div>
-
-    <div class="section">
-      <div class="section-head"><h2>Org</h2>{{if .Org}}<span class="count">{{len .Org}}</span>{{end}}</div>
-      {{if .Org}}{{template "grid" .Org}}{{else}}
-      <div class="empty">Nothing is shared org-wide right now.</div>
-      {{end}}
-    </div>
+    <div id="board" aria-live="polite"></div>
+    <noscript><div class="empty">This dashboard needs JavaScript to browse, search and sort your artifacts.</div></noscript>
   </main>
+
+  <script>
+    // Data island: every artifact the caller can see, tagged by section. Rendered
+    // client-side into card or list views (search / sort / filter / paginate).
+    // html/template JS-escapes each field, so titles/slugs are injection-safe.
+    window.__ARTIFACTS__ = [
+      {{range .Mine}}{slug:"{{.Slug}}",title:"{{.Title}}",vis:"{{.Visibility}}",ver:{{.Version}},created:"{{.Created}}",kind:"{{.ContentType}}",desc:"{{.Description}}",ownerEmail:"{{.OwnerEmail}}",viaUpload:{{.ViaUpload}},type:"mine",owner:true},
+      {{end}}{{range .Shared}}{slug:"{{.Slug}}",title:"{{.Title}}",vis:"{{.Visibility}}",ver:{{.Version}},created:"{{.Created}}",kind:"{{.ContentType}}",desc:"{{.Description}}",ownerEmail:"{{.OwnerEmail}}",viaUpload:{{.ViaUpload}},type:"shared",owner:false},
+      {{end}}{{range .Org}}{slug:"{{.Slug}}",title:"{{.Title}}",vis:"{{.Visibility}}",ver:{{.Version}},created:"{{.Created}}",kind:"{{.ContentType}}",desc:"{{.Description}}",ownerEmail:"{{.OwnerEmail}}",viaUpload:{{.ViaUpload}},type:"org",owner:false},
+      {{end}}
+    ];
+    // Whether the browser upload UI is enabled (gates the per-artifact
+    // "upload a new version" action, ADR-0024).
+    window.__UPLOAD_UI__ = {{if .UploadEnabled}}true{{else}}false{{end}};
+  </script>
 
   <!-- Share dialog (owner-only; populated + wired in JS) -->
   <div class="share-ov" id="shareOv" role="dialog" aria-modal="true" aria-labelledby="shTitle">
@@ -373,8 +443,32 @@
             <span class="fn" id="upName">Choose a file…</span>
           </button>
           <input type="text" name="title" class="up-title" id="upTitleInput" placeholder="Title (optional)" maxlength="200" autocomplete="off">
+          <input type="text" name="description" class="up-title" id="upDescInput" placeholder="Description (optional) — searchable metadata" maxlength="500" autocomplete="off">
         </div>
         <div class="mf"><span class="msm">HTML, PDF, or an image · up to 25&nbsp;MiB · private by default</span><button class="up-submit" id="upSubmit" type="submit" disabled>Upload</button></div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Upload a NEW VERSION of an upload-created artifact (ADR-0024). The form's
+       action is set per-artifact in JS when the dialog opens. -->
+  <div class="share-ov" id="versionOv" role="dialog" aria-modal="true" aria-labelledby="verTitle">
+    <div class="share-md">
+      <form id="verForm" method="POST" action="" enctype="multipart/form-data">
+        <div class="mh">
+          <div class="t"><div class="eyebrow">New version</div><h3 id="verTitle">Upload a new version</h3></div>
+          <button class="x" id="verClose" type="button" aria-label="Close">&times;</button>
+        </div>
+        <div class="mb">
+          <input type="file" name="file" id="verFile" hidden required
+                 accept=".html,.htm,.pdf,.png,.jpg,.jpeg,.gif,.webp,.svg,text/html,application/pdf,image/png,image/jpeg,image/gif,image/webp,image/svg+xml">
+          <button type="button" class="up-file" id="verPick">
+            <span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M8 8l4-4 4 4"/><path d="M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg></span>
+            <span class="fn" id="verName">Choose a file…</span>
+          </button>
+          <p class="msm" id="verFor" style="margin:12px 2px 0"></p>
+        </div>
+        <div class="mf"><span class="msm">Appends an immutable version · up to 25&nbsp;MiB · visibility and sharing are unchanged</span><button class="up-submit" id="verSubmit" type="submit" disabled>Upload version</button></div>
       </form>
     </div>
   </div>
@@ -393,14 +487,24 @@
     document.addEventListener('click', () => { profile.removeAttribute('open'); pbtn.setAttribute('aria-expanded','false'); });
     document.addEventListener('keydown', e => { if (e.key === 'Escape') { profile.removeAttribute('open'); pbtn.setAttribute('aria-expanded','false'); } });
 
-    // Copy absolute link (clipboard best-effort; no storage needed)
+    // Card/row actions are delegated on #board because cards are rendered by the
+    // controller below (search/sort/filter re-render them). Copy = clipboard
+    // best-effort; Share opens the owner dialog.
     const toast = document.getElementById('toast'); let t;
-    document.querySelectorAll('.copy').forEach(b => b.addEventListener('click', async () => {
-      try { await navigator.clipboard.writeText(location.origin + '/a/' + b.dataset.slug); } catch (e) { return; }
-      b.classList.add('copied'); toast.classList.add('show'); clearTimeout(t);
-      toast.textContent = 'Link copied';
-      t = setTimeout(() => { toast.classList.remove('show'); b.classList.remove('copied'); }, 1400);
-    }));
+    const board = document.getElementById('board');
+    board.addEventListener('click', async (e) => {
+      const cp = e.target.closest('.copy');
+      if (cp) {
+        try { await navigator.clipboard.writeText(location.origin + '/a/' + cp.dataset.slug); } catch (_) { return; }
+        cp.classList.add('copied'); toast.textContent = 'Link copied'; toast.classList.add('show'); clearTimeout(t);
+        t = setTimeout(() => { toast.classList.remove('show'); cp.classList.remove('copied'); }, 1400);
+        return;
+      }
+      const sh = e.target.closest('.share');
+      if (sh) { e.preventDefault(); e.stopPropagation(); openShare(sh.dataset.slug, sh.dataset.title); return; }
+      const nv = e.target.closest('.newver');
+      if (nv && typeof openVersion === 'function') { e.preventDefault(); e.stopPropagation(); openVersion(nv.dataset.slug, nv.dataset.title); }
+    });
 
     // ── Share dialog ────────────────────────────────────────────────
     const OWNER_EMAIL = "{{.Email}}";
@@ -537,7 +641,6 @@
       }).catch(() => showToast('Could not claim name'));
     }
 
-    document.querySelectorAll('.share').forEach(b => b.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); openShare(b.dataset.slug, b.dataset.title); }));
     el('shSeg').addEventListener('click', e => { const b = e.target.closest('button[data-v]'); if(b) setVis(b.dataset.v); });
     el('shInviteBtn').addEventListener('click', addInvite);
     el('shEmail').addEventListener('keydown', e => { if(e.key === 'Enter'){ e.preventDefault(); addInvite(); } });
@@ -570,6 +673,311 @@
       upOv.addEventListener('click', e => { if (e.target === upOv) closeUp(); });
       document.addEventListener('keydown', e => { if (e.key === 'Escape') closeUp(); });
     }
+
+    // "Upload a new version" dialog (ADR-0024) — present only when the upload UI
+    // is on. openVersion() is called by the delegated #board handler for artifacts
+    // the caller owns that were themselves created via upload. Native multipart
+    // POST to /artifacts/<slug>/versions → 303 redirect to the artifact.
+    var openVersion;
+    const verOv = el('versionOv');
+    if (verOv) {
+      const verForm = el('verForm'), verFile = el('verFile'), verSubmit = el('verSubmit');
+      const closeVer = () => verOv.classList.remove('open');
+      openVersion = (slug, title) => {
+        verForm.setAttribute('action', '/artifacts/' + encodeURIComponent(slug) + '/versions');
+        el('verFor').textContent = 'Appends a new version to “' + (title || slug) + '”. Sharing and visibility stay the same.';
+        el('verName').textContent = 'Choose a file…'; el('verPick').classList.remove('has');
+        verFile.value = ''; verSubmit.disabled = true;
+        verOv.classList.add('open'); verFile.focus();
+      };
+      el('verPick').addEventListener('click', () => verFile.click());
+      verFile.addEventListener('change', () => {
+        const f = verFile.files && verFile.files[0];
+        el('verName').textContent = f ? f.name : 'Choose a file…';
+        el('verPick').classList.toggle('has', !!f);
+        verSubmit.disabled = !f;
+      });
+      el('verClose').addEventListener('click', closeVer);
+      verOv.addEventListener('click', e => { if (e.target === verOv) closeVer(); });
+      document.addEventListener('keydown', e => { if (e.key === 'Escape') closeVer(); });
+    }
+
+    // ── Dashboard controller: card/list views, search, sort, filter, paginate ──
+    (function(){
+      const ALL = Array.isArray(window.__ARTIFACTS__) ? window.__ARTIFACTS__ : [];
+      const tbHeading = el('tbHeading'), tbCount = el('tbCount'), search = el('search'), perPage = el('perPage');
+      const SECTIONS = [['mine','Mine'],['shared','Shared with me'],['org','Org']];
+      const EMPTY = {
+        mine:'Nothing published yet. Ship one from your assistant or the CLI: artifacta publish <file>',
+        shared:'When a teammate grants you an artifact, it shows up here.',
+        org:'Nothing is shared org-wide right now.'
+      };
+      const SHARE_SVG = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="18" cy="5" r="2.6" stroke="currentColor" stroke-width="2"/><circle cx="6" cy="12" r="2.6" stroke="currentColor" stroke-width="2"/><circle cx="18" cy="19" r="2.6" stroke="currentColor" stroke-width="2"/><path d="M8.3 10.8l7.4-4.3M8.3 13.2l7.4 4.3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
+      const COPY_SVG = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M9 9h9a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-9a2 2 0 0 1-2-2v-1M15 4H6a2 2 0 0 0-2 2v9" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+      const CHEV_SVG = '<svg class="chev" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+      const PERSON_SVG = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="8" r="3.4" stroke="currentColor" stroke-width="2"/><path d="M5 20a7 7 0 0 1 14 0" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
+      const NEWVER_SVG = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 16V5M8 9l4-4 4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 19h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
+      const canNewVersion = a => window.__UPLOAD_UI__ === true && a.owner && a.viaUpload;
+
+      const ls = {
+        get(k,d){ try{ const v = localStorage.getItem('artifacta.dash.'+k); return v===null?d:v; }catch(_){ return d; } },
+        set(k,v){ try{ localStorage.setItem('artifacta.dash.'+k, v); }catch(_){} }
+      };
+      const st = {
+        view: ls.get('view','cards') === 'list' ? 'list' : 'cards',
+        q: '',
+        pageSize: parseInt(ls.get('perPage','12'),10) || 12,
+        page: 1,
+        sortKey: ls.get('sortKey','created'),
+        sortDir: ls.get('sortDir','desc') === 'asc' ? 'asc' : 'desc',
+        f: { type:'all', title:'', vis:'all', kind:'all' },
+        collapsed: new Set((ls.get('collapsed','') || '').split(',').filter(Boolean)),
+      };
+      perPage.value = String(st.pageSize);
+
+      function kindLabel(ct){
+        ct = (ct||'').toLowerCase();
+        if(ct.includes('markdown')) return 'markdown';
+        if(ct.includes('svg')) return 'svg';
+        if(ct.startsWith('image/')) return 'image';
+        if(ct.includes('pdf')) return 'pdf';
+        if(ct.includes('html')) return 'html';
+        const tail = ct.split(';')[0].split('/').pop();
+        return tail || 'file';
+      }
+      function matchSearch(a){
+        if(!st.q) return true;
+        const q = st.q.toLowerCase();
+        return a.title.toLowerCase().includes(q) || a.slug.toLowerCase().includes(q) ||
+          (a.desc && a.desc.toLowerCase().includes(q));
+      }
+
+      // ── shared card element (used by the card view) ──
+      function cardEl(a){
+        const card = document.createElement('div'); card.className = 'card';
+        const thumb = document.createElement('a'); thumb.className = 'thumb';
+        thumb.href = '/a/' + a.slug; thumb.setAttribute('aria-label','Open '+a.title);
+        const ifr = document.createElement('iframe');
+        ifr.src = '/a/' + encodeURIComponent(a.slug) + '/raw?preview=1';
+        ifr.setAttribute('sandbox','allow-scripts'); ifr.loading = 'lazy'; ifr.tabIndex = -1; ifr.title = 'preview of '+a.title;
+        const scrim = document.createElement('span'); scrim.className = 'scrim';
+        thumb.append(ifr, scrim);
+        const meta = document.createElement('div'); meta.className = 'meta';
+        const r1 = document.createElement('div'); r1.className = 'row1';
+        const tt = document.createElement('a'); tt.className = 'title'; tt.href = '/a/' + a.slug; tt.textContent = a.title;
+        r1.appendChild(tt);
+        if(a.ver > 0){ const v = document.createElement('span'); v.className = 'vchip'; v.title = 'latest version'; v.textContent = 'v'+a.ver; r1.appendChild(v); }
+        const pill = document.createElement('span'); pill.className = 'pill pill-'+a.vis; pill.textContent = a.vis; r1.appendChild(pill);
+        const r2 = document.createElement('div'); r2.className = 'row2';
+        const slug = document.createElement('span'); slug.className = 'slug'; slug.textContent = '/a/'+a.slug; r2.appendChild(slug);
+        if(a.owner){ r2.appendChild(actionBtn('share', a.slug, a.title, 'Share', SHARE_SVG)); }
+        if(canNewVersion(a)){ r2.appendChild(actionBtn('newver', a.slug, a.title, 'Upload a new version', NEWVER_SVG)); }
+        r2.appendChild(actionBtn('copy', a.slug, null, 'Copy link', COPY_SVG));
+        meta.append(r1);
+        if(a.desc){ const d = document.createElement('div'); d.className='desc'; d.title = a.desc; d.textContent = a.desc; meta.appendChild(d); }
+        meta.append(r2);
+        // On artifacts the viewer doesn't own, show who does.
+        if(!a.owner && a.ownerEmail){ meta.appendChild(bylineEl(a.ownerEmail)); }
+        card.append(thumb, meta);
+        return card;
+      }
+      function bylineEl(email){
+        const b = document.createElement('div'); b.className='byline';
+        b.innerHTML = PERSON_SVG; const w = document.createElement('span'); w.className='who'; w.textContent = email;
+        b.append(document.createTextNode('owned by '), w); return b;
+      }
+      function actionBtn(cls, slug, title, label, svg){
+        const b = document.createElement('button'); b.type = 'button';
+        b.className = 'iconbtn '+cls; b.dataset.slug = slug; if(title!==null) b.dataset.title = title;
+        b.title = label; b.setAttribute('aria-label', label); b.innerHTML = svg;
+        return b;
+      }
+
+      // ── card view: collapsible sections ──
+      function renderCards(){
+        tbHeading.textContent = 'Artifacts'; board.textContent = '';
+        let total = 0;
+        SECTIONS.forEach(([type,label])=>{
+          const items = ALL.filter(a => a.type===type && matchSearch(a));
+          total += items.length;
+          const sec = document.createElement('section');
+          sec.className = 'section' + (st.collapsed.has(type) ? ' collapsed' : '');
+          const head = document.createElement('button'); head.type = 'button'; head.className = 'sec-toggle';
+          head.setAttribute('aria-expanded', String(!st.collapsed.has(type)));
+          head.innerHTML = CHEV_SVG + '<h2>'+label+'</h2>';
+          const cnt = document.createElement('span'); cnt.className = 'count'; cnt.textContent = items.length; head.appendChild(cnt);
+          head.addEventListener('click', ()=>{
+            if(st.collapsed.has(type)) st.collapsed.delete(type); else st.collapsed.add(type);
+            ls.set('collapsed', Array.from(st.collapsed).join(','));
+            sec.classList.toggle('collapsed'); head.setAttribute('aria-expanded', String(!sec.classList.contains('collapsed')));
+          });
+          sec.appendChild(head);
+          if(items.length === 0){
+            const e = document.createElement('div'); e.className = 'empty';
+            e.textContent = st.q ? 'No matches in this section.' : EMPTY[type]; sec.appendChild(e);
+          } else {
+            const grid = document.createElement('div'); grid.className = 'grid';
+            items.forEach(a => grid.appendChild(cardEl(a))); sec.appendChild(grid);
+          }
+          board.appendChild(sec);
+        });
+        tbCount.textContent = total;
+      }
+
+      // ── list view: one sortable/filterable/paginated table ──
+      const GET = {
+        type:a=>a.type, title:a=>a.title.toLowerCase(), vis:a=>a.vis,
+        kind:a=>kindLabel(a.kind), ver:a=>a.ver, created:a=>a.created||''
+      };
+      const TYPE_LABEL = {mine:'Mine', shared:'Shared', org:'Org'};
+      function listItems(){
+        let items = ALL.filter(a=>{
+          if(st.f.type!=='all' && a.type!==st.f.type) return false;
+          if(st.f.vis!=='all' && a.vis!==st.f.vis) return false;
+          if(st.f.kind!=='all' && kindLabel(a.kind)!==st.f.kind) return false;
+          if(st.f.title && !a.title.toLowerCase().includes(st.f.title.toLowerCase())) return false;
+          return matchSearch(a);
+        });
+        const g = GET[st.sortKey] || GET.created, dir = st.sortDir==='asc'?1:-1;
+        items.sort((a,b)=>{
+          const va = g(a), vb = g(b);
+          if(va<vb) return -1*dir; if(va>vb) return 1*dir;
+          return a.slug<b.slug?-1:1; // stable tie-break
+        });
+        return items;
+      }
+      function renderList(){
+        tbHeading.textContent = 'All artifacts'; board.textContent = '';
+        const items = listItems();
+        const total = items.length; tbCount.textContent = total;
+        const size = st.pageSize>0 ? st.pageSize : (total||1);
+        const pages = Math.max(1, Math.ceil(total/size));
+        if(st.page>pages) st.page = pages; if(st.page<1) st.page = 1;
+        const rows = items.slice((st.page-1)*size, (st.page-1)*size + size);
+
+        const wrap = document.createElement('div'); wrap.className = 'tblwrap';
+        const tbl = document.createElement('table'); tbl.className = 'tbl';
+        const kinds = Array.from(new Set(ALL.map(a=>kindLabel(a.kind)))).sort();
+        tbl.innerHTML =
+          '<thead>' +
+            '<tr>' + [
+              th('type','Type'), th('title','Title'), th('vis','Visibility'),
+              th('kind','Kind'), th('ver','Ver'), th('created','Created'),
+              '<th class="c-actions"></th>'
+            ].join('') + '</tr>' +
+            '<tr class="filters">' +
+              '<th>'+sel('type', st.f.type, [['all','All'],['mine','Mine'],['shared','Shared'],['org','Org']])+'</th>' +
+              '<th><input data-f="title" type="text" placeholder="Filter…" value="'+attr(st.f.title)+'" aria-label="Filter title"></th>' +
+              '<th>'+sel('vis', st.f.vis, [['all','All'],['private','private'],['invited','invited'],['org','org'],['link','link']])+'</th>' +
+              '<th>'+sel('kind', st.f.kind, [['all','All']].concat(kinds.map(k=>[k,k])))+'</th>' +
+              '<th></th><th></th><th></th>' +
+            '</tr>' +
+          '</thead>';
+        const tb = document.createElement('tbody');
+        if(rows.length===0){
+          const tr = document.createElement('tr'); const td = document.createElement('td');
+          td.colSpan = 7; td.innerHTML = '<div class="empty" style="border:0">No artifacts match these filters.</div>'; tr.appendChild(td); tb.appendChild(tr);
+        } else rows.forEach(a=> tb.appendChild(rowEl(a)));
+        tbl.appendChild(tb); wrap.appendChild(tbl); board.appendChild(wrap);
+        board.appendChild(pagerEl(total, pages, size, rows.length));
+
+        // wire header sorts + filters
+        tbl.querySelectorAll('.sortbtn').forEach(btn => btn.addEventListener('click', ()=>{
+          const k = btn.dataset.k;
+          if(st.sortKey===k) st.sortDir = st.sortDir==='asc'?'desc':'asc';
+          else { st.sortKey = k; st.sortDir = (k==='created'||k==='ver') ? 'desc' : 'asc'; }
+          ls.set('sortKey', st.sortKey); ls.set('sortDir', st.sortDir); renderList();
+        }));
+        tbl.querySelectorAll('[data-f]').forEach(inp => {
+          const ev = inp.tagName==='SELECT' ? 'change' : 'input';
+          inp.addEventListener(ev, ()=>{ st.f[inp.dataset.f] = inp.value; st.page = 1;
+            renderList(); if(ev==='input'){ const n = board.querySelector('[data-f="'+inp.dataset.f+'"]'); if(n){ n.focus(); n.setSelectionRange(n.value.length,n.value.length); } }
+          });
+        });
+      }
+      function th(key,label){
+        const active = st.sortKey===key;
+        const arr = active ? (st.sortDir==='asc'?'▲':'▼') : '↕';
+        return '<th data-k="'+key+'"'+(active?' aria-sort="'+(st.sortDir==='asc'?'ascending':'descending')+'"':'')+'>' +
+          '<button type="button" class="sortbtn" data-k="'+key+'">'+label+' <span class="arr">'+arr+'</span></button></th>';
+      }
+      function sel(name, val, opts){
+        return '<select data-f="'+name+'" aria-label="Filter '+name+'">' +
+          opts.map(([v,l])=>'<option value="'+attr(v)+'"'+(v===val?' selected':'')+'>'+txt(l)+'</option>').join('') + '</select>';
+      }
+      function rowEl(a){
+        const tr = document.createElement('tr');
+        const type = document.createElement('td'); type.innerHTML = '<span class="typechip type-'+a.type+'">'+TYPE_LABEL[a.type]+'</span>';
+        const title = document.createElement('td');
+        const ta = document.createElement('a'); ta.className='c-title'; ta.href='/a/'+a.slug; ta.textContent=a.title;
+        const sl = document.createElement('span'); sl.className='c-slug'; sl.textContent='/a/'+a.slug;
+        title.append(ta, sl);
+        if(a.desc){ const d = document.createElement('span'); d.className='c-desc'; d.title=a.desc; d.textContent=a.desc; title.appendChild(d); }
+        if(!a.owner && a.ownerEmail){ const by = bylineEl(a.ownerEmail); by.style.marginTop='3px'; title.appendChild(by); }
+        const vis = document.createElement('td'); vis.innerHTML = '<span class="pill pill-'+a.vis+'">'+a.vis+'</span>';
+        const kind = document.createElement('td'); kind.className='c-hide-sm'; const kb=document.createElement('span'); kb.className='kind'; kb.textContent=kindLabel(a.kind); kind.appendChild(kb);
+        const ver = document.createElement('td'); ver.className='c-hide-sm'; ver.textContent = a.ver>0?('v'+a.ver):'—';
+        const cr = document.createElement('td'); cr.className='c-date c-hide-sm'; cr.textContent = a.created||'—';
+        const act = document.createElement('td'); act.className='c-actions';
+        const open = document.createElement('a'); open.className='iconbtn'; open.href='/a/'+a.slug; open.title='Open'; open.setAttribute('aria-label','Open');
+        open.innerHTML='<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M7 17L17 7M17 7H9M17 7v8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+        act.appendChild(open);
+        if(a.owner) act.appendChild(actionBtn('share', a.slug, a.title, 'Share', SHARE_SVG));
+        if(canNewVersion(a)) act.appendChild(actionBtn('newver', a.slug, a.title, 'Upload a new version', NEWVER_SVG));
+        act.appendChild(actionBtn('copy', a.slug, null, 'Copy link', COPY_SVG));
+        tr.append(type, title, vis, kind, ver, cr, act);
+        return tr;
+      }
+      function pagerEl(total, pages, size, shown){
+        const p = document.createElement('div'); p.className='pager';
+        const info = document.createElement('span'); info.className='info';
+        if(total===0) info.textContent='No artifacts';
+        else if(st.pageSize===0) info.textContent = total+' artifact'+(total===1?'':'s');
+        else { const from=(st.page-1)*size+1; info.textContent = from+'–'+(from+shown-1)+' of '+total; }
+        p.appendChild(info);
+        if(pages>1 && st.pageSize>0){
+          const nav = document.createElement('div'); nav.className='nav';
+          nav.appendChild(pBtn('‹', st.page>1, ()=>{ st.page--; renderList(); }));
+          const wnd = pageWindow(st.page, pages);
+          wnd.forEach(n=>{
+            if(n==='…'){ const s=document.createElement('span'); s.textContent='…'; s.style.color='var(--muted)'; s.style.padding='0 4px'; nav.appendChild(s); }
+            else { const b = pBtn(String(n), true, ()=>{ st.page=n; renderList(); }); if(n===st.page) b.setAttribute('aria-current','true'); nav.appendChild(b); }
+          });
+          nav.appendChild(pBtn('›', st.page<pages, ()=>{ st.page++; renderList(); }));
+          p.appendChild(nav);
+        }
+        return p;
+      }
+      function pBtn(label, enabled, fn){
+        const b = document.createElement('button'); b.type='button'; b.textContent=label; b.disabled=!enabled;
+        if(enabled) b.addEventListener('click', fn); return b;
+      }
+      function pageWindow(cur, pages){
+        const out=[]; const add=n=>out.push(n);
+        const lo=Math.max(2,cur-1), hi=Math.min(pages-1,cur+1);
+        add(1); if(lo>2) add('…'); for(let i=lo;i<=hi;i++) add(i); if(hi<pages-1) add('…'); if(pages>1) add(pages);
+        return out;
+      }
+      function attr(s){ return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
+      function txt(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;'); }
+
+      function updateToggle(){
+        document.querySelectorAll('.viewtoggle button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.view===st.view)));
+        el('perPage').closest('.perpage').style.display = st.view==='list' ? '' : 'none';
+      }
+      function render(){ updateToggle(); if(st.view==='list') renderList(); else renderCards(); }
+
+      // toolbar wiring
+      search.addEventListener('input', ()=>{ st.q = search.value.trim(); st.page = 1; render();
+        // keep focus (render replaces board, not the toolbar, so focus is safe)
+      });
+      document.querySelectorAll('.viewtoggle button').forEach(b => b.addEventListener('click', ()=>{
+        st.view = b.dataset.view; ls.set('view', st.view); st.page = 1; render();
+      }));
+      perPage.addEventListener('change', ()=>{ st.pageSize = parseInt(perPage.value,10)||0; ls.set('perPage', String(st.pageSize)); st.page = 1; render(); });
+
+      render();
+    })();
   </script>
 </body>
 </html>

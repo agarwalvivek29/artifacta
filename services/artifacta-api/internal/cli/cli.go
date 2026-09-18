@@ -443,7 +443,7 @@ func contentTypeForPath(path string) string {
 func publish(args []string) error {
 	// Parse an optional `--update <slug>` flag; it may appear before or after the
 	// file path. Everything else is treated as the positional <file> argument.
-	var updateSlug, path string
+	var updateSlug, path, description string
 	for i := 0; i < len(args); i++ {
 		if args[i] == "--update" {
 			if i+1 >= len(args) {
@@ -453,12 +453,20 @@ func publish(args []string) error {
 			i++
 			continue
 		}
+		if args[i] == "--description" || args[i] == "--desc" {
+			if i+1 >= len(args) {
+				return fmt.Errorf("usage: artifacta publish [--description <text>] <file>")
+			}
+			description = args[i+1]
+			i++
+			continue
+		}
 		if path == "" {
 			path = args[i]
 		}
 	}
 	if path == "" {
-		return fmt.Errorf("usage: artifacta publish [--update <slug>] <file>")
+		return fmt.Errorf("usage: artifacta publish [--update <slug>] [--description <text>] <file>")
 	}
 	c, err := config.Load()
 	if err != nil {
@@ -492,7 +500,7 @@ func publish(args []string) error {
 		if err != nil {
 			return err
 		}
-		link, err := publishRemote(c.BaseURL, token, path)
+		link, err := publishRemote(c.BaseURL, token, path, description)
 		if err != nil {
 			return err
 		}
@@ -519,7 +527,9 @@ func publish(args []string) error {
 	art := &artifactav1.Artifact{
 		Slug:          domain.NewSlug(),
 		OwnerSub:      c.Sub,
+		OwnerEmail:    c.Email,
 		Title:         filepath.Base(path),
+		Description:   description,
 		Visibility:    artifactav1.Visibility_VISIBILITY_PRIVATE, // private by default
 		ContentType:   contentTypeForPath(path),
 		CreatedAt:     now,
@@ -551,14 +561,18 @@ func publish(args []string) error {
 // publishRemote POSTs the file at path to <baseURL>/artifacts?title=<basename>
 // with `Authorization: Bearer <token>` and returns the `url` from the JSON
 // response. It is unit-testable against an httptest.Server.
-func publishRemote(baseURL, token, path string) (string, error) {
+func publishRemote(baseURL, token, path, description string) (string, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return "", err
 	}
 	defer f.Close()
 
-	endpoint := remoteURL(baseURL, "/artifacts?title="+url.QueryEscape(filepath.Base(path)))
+	q := "/artifacts?title=" + url.QueryEscape(filepath.Base(path))
+	if description != "" {
+		q += "&description=" + url.QueryEscape(description)
+	}
+	endpoint := remoteURL(baseURL, q)
 	var out struct {
 		Slug string `json:"slug"`
 		URL  string `json:"url"`

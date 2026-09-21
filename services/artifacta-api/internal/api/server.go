@@ -39,6 +39,12 @@ type Store interface {
 	// RemoveGrant revokes a grant by grantee subject or email (FR13, ADR-0019).
 	RemoveGrant(slug, id string) (bool, error)
 	Append(ev *artifactav1.AuditEvent) error
+	// AppendRaw inserts an audit event VERBATIM, preserving its seq/prev_hash/hash
+	// exactly (no re-chaining, unlike Append). Migration-only (ADR-0026): it must
+	// never be wired to a publish/API path. Resumable semantics — an event whose seq
+	// already exists is a no-op when the stored hash is identical, and an error when
+	// it differs (a divergent/foreign trail is refused, never overwritten).
+	AppendRaw(ev *artifactav1.AuditEvent) error
 	// AuditEvents lists the audit trail in seq order (for `audit verify`).
 	AuditEvents() ([]*artifactav1.AuditEvent, error)
 	// Versioning (ADR-0013): immutable versions per artifact.
@@ -49,6 +55,10 @@ type Store interface {
 	AddComment(c *artifactav1.Comment) error
 	Comments(slug string) ([]*artifactav1.Comment, error)
 	ResolveComment(slug, id string) (bool, error)
+	// AllArtifacts returns every artifact regardless of owner, visibility, or grant
+	// — the full, backend-agnostic enumeration (ADR-0026). There is no scoped
+	// alternative that yields all of them; used by `artifacta migrate`.
+	AllArtifacts() ([]*artifactav1.Artifact, error)
 	// Dashboard listings (FR18): Mine, Shared with me, and Org.
 	ListByOwner(sub string) ([]*artifactav1.Artifact, error)
 	ListByGrantee(sub string) ([]*artifactav1.Artifact, error)

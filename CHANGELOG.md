@@ -2,6 +2,24 @@
 
 All notable changes to ArtifactA are documented here. Versions follow [SemVer](https://semver.org).
 
+## 0.0.15 — 2026-09-22
+
+### Added
+
+- **`artifacta migrate` — offline file-store → Postgres/S3 data migration** (ADR-0026). A new
+  operator-run, one-shot, **resumable** CLI subcommand that copies an existing file-store
+  deployment (artifacts, versions, grants, comments, blob bundles, and the hash-chained audit
+  trail) onto the Postgres store (ADR-0009) and S3 blob backend (ADR-0006), so operators can
+  adopt the horizontally-scalable backends without losing data or history. The audit trail is
+  copied **verbatim** — a new migration-only `Store.AppendRaw` preserves each event's
+  `seq`/`prev_hash`/`hash` and never re-chains — and the destination chain is verified for
+  **completeness** (event count + first/last seq + last hash), not just internal consistency.
+  Blobs are sha256-verified on copy; grants dedupe by grantee subject or, for email-only invites
+  (ADR-0019, empty `grantee_sub`), by email, so distinct invites are never collapsed. Safe to
+  re-run: a partial or interrupted migration resumes in place, and a foreign/divergent
+  destination is refused **before any write**. Enumeration uses a new `Store.AllArtifacts`; the
+  source is read-only and no runtime/publish paths change.
+
 ## 0.0.14 — 2026-09-18
 
 ### Added

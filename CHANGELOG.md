@@ -2,6 +2,30 @@
 
 All notable changes to ArtifactA are documented here. Versions follow [SemVer](https://semver.org).
 
+## 0.1.1 — 2026-09-22
+
+### Fixed
+
+- **Owner-only viewer controls no longer leak to non-owners.** Share, the edit affordance, and
+  "Upload a new version" are now shown only to the artifact's owner. They had been rendered for
+  everyone because those buttons set an explicit `display`, which overrode the `hidden` attribute
+  (a normal author rule beats the UA `[hidden]{display:none}`), so the owner gate in JS had no
+  visual effect. A `.sbtn[hidden] / .cbtn[hidden] / .pencil[hidden] { display:none !important }`
+  rule makes `hidden` authoritative. (Share was affected since 0.0.8; Edit / New-version since
+  0.1.0.)
+
+### Changed
+
+- **The artifact title is shown in the viewer's top bar**, and editing it moved from a dedicated
+  "Edit" button to a **pencil beside the title** (owner-only) that opens the same edit dialog.
+- **Removed the "sandboxed" chip** from the top bar — the sandbox itself is unchanged; the badge
+  was only a label.
+
+### Added
+
+- **Open-source footer** in the viewer linking the ArtifactA name to the repository, with the
+  Apache-2.0 license, so contributors can find the project.
+
 ## 0.1.0 — 2026-09-22 — First stable release
 
 ArtifactA graduates from its `0.0.x` prototype line to a **stable** release. The full

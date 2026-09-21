@@ -2,6 +2,18 @@
 
 All notable changes to ArtifactA are documented here. Versions follow [SemVer](https://semver.org).
 
+## 0.0.16 — 2026-09-22
+
+### Fixed
+
+- **S3 blob backend now works with role-based credentials (EKS Pod Identity / IRSA).** `NewBlobS3`
+  previously built a static-credentials provider unconditionally, so with no
+  `ARTIFACTA_S3_ACCESS_KEY_ID`/`SECRET` the S3 client failed on first use with `static credentials
+  are empty` — the backend could only authenticate with explicit keys. It now falls back to the AWS
+  SDK default credential chain (environment, EKS Pod Identity, IRSA, shared config/SSO, ...) when no
+  access key is set, and keeps static keys when they are provided (MinIO/R2/dev). Unblocks keyless
+  deployments of both the server and `artifacta migrate`.
+
 ## 0.0.15 — 2026-09-22
 
 ### Added

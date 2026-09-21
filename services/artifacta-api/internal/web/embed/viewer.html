@@ -333,9 +333,11 @@
     </div>
   </div>
 
-  <!-- allow-popups(+escape) lets an external link open in a real new tab (ADR-0027);
-       the artifact frame itself stays a null-origin allow-scripts sandbox. -->
-  <iframe id="frame" sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox" referrerpolicy="no-referrer" title="artifact"></iframe>
+  <!-- allow-forms lets artifacts submit forms; allow-popups(+escape) lets an external
+       link open in a real new tab (ADR-0027). allow-same-origin is deliberately NOT set:
+       the frame stays a null (opaque) origin so artifact JS can never reach the shell's
+       session cookie, storage, or same-origin API routes (ADR-0008). -->
+  <iframe id="frame" sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox" referrerpolicy="no-referrer" title="artifact"></iframe>
 
   <!-- floating affordance shown over a text selection inside the artifact (ADR-0015) -->
   <button class="addcomment" id="addcomment" type="button">

@@ -71,6 +71,9 @@ Usage:
                               logged-in remote, else the local listen address
   artifacta audit verify      verify the audit log: full hash chain locally, or your
                               own rows client-side when logged in to a remote
+  artifacta migrate --from-data-dir <path> --to-database-url <dsn> --to-s3-bucket <b> [--to-s3-*]
+                            copy a file-store deployment onto Postgres + S3, verbatim +
+                            resumable (ADR-0026); see 'artifacta migrate --help'
   artifacta version           print the build version
 
 Docs: docs/PLAN.md is legacy; see docs/PRODUCT.md, docs/ARCHITECTURE.md
@@ -112,6 +115,8 @@ func Run(args []string) error {
 		return healthcheck(args[1:])
 	case "audit":
 		return audit(args[1:])
+	case "migrate":
+		return migrate(args[1:])
 	case "version", "--version", "-v":
 		fmt.Printf("artifacta %s\n", Version)
 		return nil

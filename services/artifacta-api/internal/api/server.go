@@ -246,6 +246,10 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("PATCH /artifacts/{slug}/visibility", rateLimit(http.HandlerFunc(s.setVisibility), contentPerMinute))
 	// Custom subdomain label (ADR-0017): owner-only claim of a {label}.{root} host.
 	mux.Handle("PATCH /artifacts/{slug}/label", rateLimit(http.HandlerFunc(s.setLabel), contentPerMinute))
+	// Edit mutable metadata (title / description): owner-only. The more specific
+	// /visibility and /label patterns above take precedence in the Go 1.22 mux, so
+	// this only matches a bare PATCH /artifacts/{slug}.
+	mux.Handle("PATCH /artifacts/{slug}", rateLimit(http.HandlerFunc(s.updateArtifact), contentPerMinute))
 
 	// Comments (ADR-0014): view-gated create/list (anyone who CanView), owner-only
 	// resolve. Not audited — comments are collaboration content, not access events.
@@ -1205,6 +1209,12 @@ func (s *Server) metadata(w http.ResponseWriter, r *http.Request) {
 		"visibility":     visibilityLabel(art.GetVisibility()),
 		"latest_version": art.GetLatestVersion(),
 		"is_owner":       isOwner,
+		// via_upload + upload_enabled let the (static, non-templated) viewer decide
+		// whether to offer the owner a browser "upload a new version" action: the
+		// endpoint only accepts it for an upload-created artifact when the operator
+		// has turned the upload UI on (ADR-0024).
+		"via_upload":     art.GetViaUpload(),
+		"upload_enabled": s.UploadUI,
 		"versions":       vs,
 		// Subdomain hosting (ADR-0017): the custom label (if any) and the absolute
 		// subdomain URL. subdomain_url is "" when RootDomain is not configured.
@@ -1349,6 +1359,58 @@ func (s *Server) setVisibility(w http.ResponseWriter, r *http.Request) {
 	}
 	s.audit(who, slug, artifactav1.AuditAction_AUDIT_ACTION_SHARE, true)
 	w.WriteHeader(http.StatusOK)
+}
+
+// updateArtifact (owner-only) edits an artifact's mutable metadata — its title
+// and/or description. The versioned bytes are immutable and untouched; this only
+// changes display/search metadata. Fail-closed like the other mutations (401
+// unauthenticated, 404 non-owner/missing). Body is {"title":?, "description":?}
+// with each field optional (a pointer): a present title is trimmed and must be
+// non-empty (it is the display name), a present description is trimmed and may be
+// empty to clear it, and at least one must be present. An EDIT audit event is
+// written. Returns 200 with the updated {slug, title, description}.
+func (s *Server) updateArtifact(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+	art, who, ok := s.ownedArtifact(w, r, slug)
+	if !ok {
+		return
+	}
+
+	var body struct {
+		Title       *string `json:"title"`
+		Description *string `json:"description"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	if body.Title == nil && body.Description == nil {
+		http.Error(w, "nothing to update (want title and/or description)", http.StatusBadRequest)
+		return
+	}
+	if body.Title != nil {
+		title := strings.TrimSpace(*body.Title)
+		if title == "" {
+			http.Error(w, "title must not be empty", http.StatusBadRequest)
+			return
+		}
+		art.Title = title
+	}
+	if body.Description != nil {
+		art.Description = strings.TrimSpace(*body.Description)
+	}
+
+	if err := s.Store.PutArtifact(art); err != nil {
+		http.Error(w, "unavailable", http.StatusInternalServerError)
+		return
+	}
+	s.audit(who, slug, artifactav1.AuditAction_AUDIT_ACTION_EDIT, true)
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"slug":        art.GetSlug(),
+		"title":       art.GetTitle(),
+		"description": art.GetDescription(),
+	})
 }
 
 // setLabel (ADR-0017) claims a custom subdomain label for an artifact, making it

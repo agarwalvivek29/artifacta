@@ -261,6 +261,18 @@
     .share-md .done{background:var(--accent);color:var(--on-accent);border:1px solid transparent;border-radius:10px;padding:9px 20px;font:inherit;font-size:14px;font-weight:600;cursor:pointer}
     .share-md .done:hover{background:var(--accent-hover)}
     @media (prefers-reduced-motion:reduce){.share-md *{transition:none!important}}
+    /* Owner edit + new-version dialogs — reuse the .share-ov/.share-md chrome. */
+    .ed-l{display:block;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);margin:14px 0 6px}
+    .ed-i{width:100%;box-sizing:border-box;font:inherit;font-size:14px;color:var(--ink);background:var(--surface);border:1.5px solid var(--line);border-radius:9px;padding:9px 11px}
+    .ed-i:focus{outline:none;border-color:var(--accent)}
+    .ed-ta{min-height:78px;resize:vertical;line-height:1.5}
+    .ed-err{min-height:16px;margin-top:10px;font-size:12.5px;color:var(--bad)}
+    .nv-pick{display:flex;align-items:center;gap:10px;width:100%;box-sizing:border-box;font:inherit;font-size:14px;color:var(--ink);background:var(--surface);border:1.5px dashed var(--line);border-radius:9px;padding:12px;cursor:pointer}
+    .nv-pick:hover{border-color:var(--accent)}
+    .nv-pick.has{border-style:solid;border-color:var(--accent)}
+    .nv-pick svg{width:18px;height:18px;flex:none;color:var(--muted)}
+    .nv-hint{font-size:12px;color:var(--muted);margin:12px 2px 0;line-height:1.5}
+    .nv-hint code{font-family:"IBM Plex Mono",monospace;font-size:11.5px;background:var(--surface-2);border:1px solid var(--line);border-radius:5px;padding:1px 5px}
   </style>
 </head>
 <body>
@@ -276,6 +288,14 @@
     <button class="sbtn" id="sharebtn" type="button" title="Share" hidden>
       <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="18" cy="5" r="2.6" stroke="currentColor" stroke-width="2"/><circle cx="6" cy="12" r="2.6" stroke="currentColor" stroke-width="2"/><circle cx="18" cy="19" r="2.6" stroke="currentColor" stroke-width="2"/><path d="M8.3 10.8l7.4-4.3M8.3 13.2l7.4 4.3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
       Share
+    </button>
+    <button class="sbtn" id="editbtn" type="button" title="Edit title & description" hidden>
+      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 20h4L18.5 9.5a2.1 2.1 0 0 0-3-3L5 17v3Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M13.5 6.5l3 3" stroke="currentColor" stroke-width="2"/></svg>
+      Edit
+    </button>
+    <button class="sbtn" id="nvbtn" type="button" title="Upload a new version" hidden>
+      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 16V5M8 9l4-4 4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 19h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      New version
     </button>
     <button class="cbtn" id="cbtn" type="button" aria-expanded="false" aria-controls="drawer" hidden>
       <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 5h16v11H8l-4 3V5Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
@@ -333,7 +353,11 @@
     </div>
   </div>
 
-  <iframe id="frame" sandbox="allow-scripts" referrerpolicy="no-referrer" title="artifact"></iframe>
+  <!-- allow-forms lets artifacts submit forms; allow-popups(+escape) lets an external
+       link open in a real new tab (ADR-0027). allow-same-origin is deliberately NOT set:
+       the frame stays a null (opaque) origin so artifact JS can never reach the shell's
+       session cookie, storage, or same-origin API routes (ADR-0008). -->
+  <iframe id="frame" sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox" referrerpolicy="no-referrer" title="artifact"></iframe>
 
   <!-- floating affordance shown over a text selection inside the artifact (ADR-0015) -->
   <button class="addcomment" id="addcomment" type="button">
@@ -396,6 +420,48 @@
     </div>
   </div>
 
+  <!-- Edit title/description (owner-only). Reuses the share dialog overlay + card chrome. -->
+  <div class="share-ov" id="editOv" role="dialog" aria-modal="true" aria-labelledby="edTitle">
+    <div class="share-md">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:18px 22px 0">
+        <div class="t"><div class="eyebrow">Edit</div><h3 id="edTitle">Title &amp; description</h3></div>
+        <button class="x" id="edClose" type="button" aria-label="Close">&times;</button>
+      </div>
+      <div style="padding:4px 22px 18px">
+        <label class="ed-l" for="edTitleInput">Title</label>
+        <input class="ed-i" id="edTitleInput" type="text" maxlength="200" autocomplete="off" placeholder="Untitled artifact">
+        <label class="ed-l" for="edDescInput">Description</label>
+        <textarea class="ed-i ed-ta" id="edDescInput" maxlength="500" placeholder="Optional — searchable metadata"></textarea>
+        <div class="ed-err" id="edErr"></div>
+      </div>
+      <div class="mf"><span class="msm">Metadata only — the artifact content is unchanged</span><button class="done" id="edSave" type="button">Save</button></div>
+    </div>
+  </div>
+
+  <!-- Upload a new version (owner + upload UI + upload-created artifact, ADR-0024).
+       Native multipart POST to /artifacts/{slug}/versions → 303 back to the artifact. -->
+  <div class="share-ov" id="nvOv" role="dialog" aria-modal="true" aria-labelledby="nvTitle">
+    <div class="share-md">
+      <form id="nvform" method="POST" action="" enctype="multipart/form-data">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:18px 22px 0">
+          <div class="t"><div class="eyebrow">New version</div><h3 id="nvTitle">Upload a new version</h3></div>
+          <button class="x" id="nvClose" type="button" aria-label="Close">&times;</button>
+        </div>
+        <div style="padding:8px 22px 4px">
+          <input type="file" name="file" id="nvfile" hidden required
+            accept=".html,.htm,.pdf,.png,.jpg,.jpeg,.gif,.webp,.svg,text/html,application/pdf,image/png,image/jpeg,image/gif,image/webp,image/svg+xml">
+          <button type="button" class="nv-pick" id="nvPick">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M8 8l4-4 4 4"/><path d="M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
+            <span>Choose a file…</span>
+          </button>
+          <p class="msm" id="nvName" style="margin:8px 2px 0"></p>
+          <p class="nv-hint">Appends an immutable new version; sharing and visibility stay the same. Prefer the terminal? Run <code>artifacta publish --update &lt;slug&gt;</code>.</p>
+        </div>
+        <div class="mf"><span class="msm" id="nvErr"></span><button class="done" id="nvSubmit" type="submit" disabled>Upload</button></div>
+      </form>
+    </div>
+  </div>
+
   <div class="toast" id="toast">Link copied</div>
 
   <script>
@@ -440,6 +506,35 @@
       'var t;document.addEventListener("selectionchange",function(){clearTimeout(t);t=setTimeout(report,250);});' +
       'document.addEventListener("click",function(e){var cr=caretAt(e.clientX,e.clientY);if(!cr)return;' +
         'for(var i=0;i<ranges.length;i++){try{if(ranges[i].range.isPointInRange(cr.startContainer,cr.startOffset)){post("hn-focus",{id:ranges[i].id});return;}}catch(err){}}});' +
+      // Contain the frame. A srcdoc document inherits its base URL from the
+      // parent shell (/a/<slug>), and the frame is a null-origin sandbox with no
+      // valid same-origin destination -- so anything that resolves RELATIVE (a
+      // "#id" TOC entry, "page.html", "/path", "?q", href="", or a form with no /
+      // relative action) would navigate THIS frame to the shell and reload the
+      // whole viewer inside itself ("artifacta inside artifacta"). Handle "#id"
+      // as an in-page scroll against about:srcdoc; swallow other relative
+      // navigations. Absolute links (scheme:... or //host) navigate normally.
+      'var isRel=function(v){if(v==null||v==="")return true;' +
+        'return v.charAt(0)!=="#"&&v.slice(0,2)!=="//"&&!/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(v);};' +
+      'var webAbs=function(v){if(!v)return false;var s=v.toLowerCase();' +
+        'return s.indexOf("//")===0||s.indexOf("http://")===0||s.indexOf("https://")===0;};' +
+      'document.addEventListener("click",function(e){' +
+        'var a=e.target&&e.target.closest?e.target.closest("a[href]"):null;if(!a)return;' +
+        'var h=a.getAttribute("href");' +
+        'if(h&&h.charAt(0)==="#"){e.preventDefault();var id=h.slice(1);' +
+          'if(!id){window.scrollTo(0,0);return;}' +
+          'try{location.hash=id;}catch(_){var t=document.getElementById(id);if(t)t.scrollIntoView();}return;}' +
+        'if(isRel(h)){e.preventDefault();return;}' +
+        // External web link: open in a new tab instead of replacing the artifact
+        // in-frame. The click is a real user gesture and the sandbox now allows
+        // popups to escape, so window.open yields a normal-context tab;
+        // noopener,noreferrer sever the opener/referrer back-channel.
+        'if(webAbs(h)){e.preventDefault();try{window.open(h,"_blank","noopener,noreferrer");}catch(_){}}' +
+      '},true);' +
+      'document.addEventListener("submit",function(e){' +
+        'var f=e.target;if(!f||f.tagName!=="FORM")return;' +
+        'if(isRel(f.getAttribute("action")))e.preventDefault();' +
+      '},true);' +
       'window.addEventListener("message",function(e){var d=e.data;if(!d||d.source!=="artifacta")return;' +
         'if(d.type==="hn-anchors"){paint(d.anchors||[]);}' +
         'else if(d.type==="hn-scroll"){var m=null;for(var i=0;i<ranges.length;i++){if(ranges[i].id===d.id){m=ranges[i];break;}}' +
@@ -785,7 +880,13 @@
           const once = () => { if (!revealed) { revealed = true; reveal(); } };
           frame.onload = once;
           setTimeout(once, 4000);
-          frame.srcdoc = html + BRIDGE;
+          // A <meta http-equiv="refresh"> inside an artifact navigates the frame
+          // on its own -- to the shell for a relative url (nesting the viewer), or
+          // off-site -- an auto-navigation the viewer never intended. It fires
+          // during parse, before the end-of-body bridge could intercept it, so
+          // strip it here; click/submit navigations are contained by the bridge.
+          const framed = html.replace(/<meta\b[^>]*?http-equiv\s*=\s*["']?\s*refresh\b[^>]*>/gi, '');
+          frame.srcdoc = framed + BRIDGE;
         } catch (e) {
           show('error');
           return;
@@ -819,8 +920,18 @@
         cbtn.hidden = false;
 
         // Owners get the Share control in the top bar (bug fix: sharing was
-        // previously reachable only from the dashboard, never the viewer).
-        if (isOwner) document.getElementById('sharebtn').hidden = false;
+        // previously reachable only from the dashboard, never the viewer). Owners
+        // also get an Edit control (title/description) and, for an upload-created
+        // artifact on a deployment with the upload UI on, an "Upload a new version"
+        // control — so a UI-first user never has to drop to the CLI (they still can).
+        if (isOwner) {
+          document.getElementById('sharebtn').hidden = false;
+          document.getElementById('editbtn').hidden = false;
+          if (data.upload_enabled && data.via_upload) {
+            document.getElementById('nvform').setAttribute('action', '/artifacts/' + encodeURIComponent(slug) + '/versions');
+            document.getElementById('nvbtn').hidden = false;
+          }
+        }
 
         await loadVersion(latest);
       } catch (e) {
@@ -986,7 +1097,61 @@
       el('shClose').addEventListener('click', closeShare);
       el('shDone').addEventListener('click', closeShare);
       shOv.addEventListener('click', e => { if(e.target === shOv) closeShare(); });
-      document.addEventListener('keydown', e => { if(e.key === 'Escape' && shOv.classList.contains('open')) closeShare(); });
+
+      // ── Edit title / description (owner-only) ──────────────────────
+      // Opens on the current values (re-fetched, like the Share dialog) and PATCHes
+      // /artifacts/{slug}. Only metadata changes; the versioned bytes are untouched.
+      const edOv = el('editOv');
+      function openEdit(){
+        api('GET', '/artifacts/' + encodeURIComponent(shSlug)).then(r => r.ok ? r.json() : Promise.reject(r.status)).then(m => {
+          el('edTitleInput').value = m.title || '';
+          el('edDescInput').value = m.description || '';
+          el('edErr').textContent = '';
+          edOv.classList.add('open');
+          el('edTitleInput').focus();
+        }).catch(() => showToast('Could not load this artifact'));
+      }
+      function closeEdit(){ edOv.classList.remove('open'); }
+      function saveEdit(){
+        const title = el('edTitleInput').value.trim();
+        if(!title){ el('edErr').textContent = 'Title can’t be empty.'; return; }
+        el('edSave').disabled = true;
+        api('PATCH', '/artifacts/' + encodeURIComponent(shSlug), { title: title, description: el('edDescInput').value.trim() })
+          .then(r => { if(!r.ok) throw 0; el('shTitle').textContent = title; document.title = title + ' · ArtifactA'; closeEdit(); showToast('Saved'); })
+          .catch(() => { el('edErr').textContent = 'Couldn’t save. Try again.'; })
+          .finally(() => { el('edSave').disabled = false; });
+      }
+      const editbtn = el('editbtn');
+      if (editbtn) editbtn.addEventListener('click', openEdit);
+      el('edClose').addEventListener('click', closeEdit);
+      el('edSave').addEventListener('click', saveEdit);
+      edOv.addEventListener('click', e => { if(e.target === edOv) closeEdit(); });
+
+      // ── Upload a new version (owner + upload UI + via_upload) ───────
+      // The form is a native multipart POST whose action was set when the button
+      // was revealed; the server 303-redirects back to /a/{slug}, reloading the
+      // viewer at the new version. No JS submit needed.
+      const nvOv = el('nvOv'), nvfile = el('nvfile');
+      function openNv(){ el('nvName').textContent = ''; el('nvPick').classList.remove('has'); el('nvErr').textContent = ''; nvfile.value = ''; el('nvSubmit').disabled = true; nvOv.classList.add('open'); }
+      function closeNv(){ nvOv.classList.remove('open'); }
+      const nvbtn = el('nvbtn');
+      if (nvbtn) nvbtn.addEventListener('click', openNv);
+      el('nvClose').addEventListener('click', closeNv);
+      el('nvPick').addEventListener('click', () => nvfile.click());
+      nvfile.addEventListener('change', () => {
+        const f = nvfile.files && nvfile.files[0];
+        el('nvName').textContent = f ? f.name : '';
+        el('nvPick').classList.toggle('has', !!f);
+        el('nvSubmit').disabled = !f;
+      });
+      nvOv.addEventListener('click', e => { if(e.target === nvOv) closeNv(); });
+
+      document.addEventListener('keydown', e => {
+        if(e.key !== 'Escape') return;
+        if(shOv.classList.contains('open')) closeShare();
+        if(edOv.classList.contains('open')) closeEdit();
+        if(nvOv.classList.contains('open')) closeNv();
+      });
     })();
     // The BRIDGE string is defined above the IIFE. It is the only code that can
     // read the selection inside the null-origin frame: it reports selections and

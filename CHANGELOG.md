@@ -2,6 +2,83 @@
 
 All notable changes to ArtifactA are documented here. Versions follow [SemVer](https://semver.org).
 
+## 0.1.0 — 2026-09-22 — First stable release
+
+ArtifactA graduates from its `0.0.x` prototype line to a **stable** release. The full
+`0.0.x` history is preserved below; this entry records the changes made for the stable
+cut and then rolls up the capabilities accumulated since the `0.0.1` prototype.
+
+### Added
+
+- **Edit an artifact's title and description after publishing** (spec 11). A new owner-only
+  `PATCH /artifacts/{slug}` updates the title and/or description (searchable metadata, ADR-0025)
+  — the versioned bytes are immutable and untouched. Reachable three ways: an **Edit** control in
+  the viewer, a new **`artifacta edit <slug> [--title …] [--description …]`** CLI command, and the
+  endpoint itself. A new `AUDIT_ACTION_EDIT` audit event records each change.
+- **Upload a new version from the viewer** (spec 11). An owner viewing an upload-created artifact
+  now gets an "Upload a new version" control in the viewer (not just the dashboard), reusing the
+  existing `POST /artifacts/{slug}/versions` (ADR-0024). Shown only when the deployment's upload
+  UI is on and the artifact was itself created via upload; the dialog also points UI-first users
+  at the equivalent `artifacta publish --update` for the CLI. The `/artifacts/{slug}` metadata now
+  returns `via_upload` and `upload_enabled` so the static viewer can gate the control.
+- **Forms work inside artifacts** (`allow-forms`). The artifact sandbox now permits
+  `<form>` submission. `allow-same-origin` is deliberately kept **off** — the frame stays a
+  null (opaque) origin, so artifact JS still cannot reach the shell's session cookie,
+  storage, or same-origin API routes ([ADR-0008](docs/adr/0008-separate-content-origin.md)).
+- **External links open in a new tab** ([ADR-0027](docs/adr/0027-external-artifact-links-new-tab.md)).
+  A link to an off-site URL inside an artifact now opens a real new tab
+  (`window.open(…, "noopener,noreferrer")`) instead of replacing the artifact in-frame. The
+  sandbox gains `allow-popups allow-popups-to-escape-sandbox`, scoped to opened windows
+  only; the artifact frame itself stays a null-origin `allow-scripts` sandbox.
+
+### Fixed
+
+- **In-artifact navigation no longer nests the viewer.** An artifact renders in a
+  null-origin `srcdoc` iframe whose base URL is inherited from the shell (`/a/<slug>`), so
+  any navigation that resolved _relative_ used to target the shell and reload the whole
+  viewer inside the frame ("ArtifactA inside ArtifactA", ending in "Couldn't load this
+  artifact"). Now: in-page `#id` links resolve against the frame's own `about:srcdoc` and
+  scroll (driving `:target`); relative / root-relative / query-only links and an empty
+  `href` are contained; and forms with a relative or empty action are cancelled
+  (absolute-action forms submit normally).
+- **`<meta http-equiv="refresh">` inside an artifact is stripped before framing.** It fires
+  during parse, before the viewer bridge can intercept it, and would navigate the frame on
+  its own (to the shell, or off-site) — an auto-navigation the viewer never intended.
+
+### Since 0.0.1 (the prototype)
+
+Everything shipped across `0.0.2`–`0.0.16`, by theme:
+
+- **Storage & scale** — S3-compatible blob backend (AWS / MinIO / R2 / B2 / Wasabi),
+  streamed server-side with no presigned URLs (0.0.2, [ADR-0006](docs/adr/0006-s3-blob-adapter-backend-only.md));
+  AWS default credential chain so keyless EKS Pod Identity / IRSA deployments work (0.0.16);
+  selectable file / Postgres store ([ADR-0009](docs/adr/0009-postgres-store-adapter.md)); and
+  an offline, **resumable** `artifacta migrate` that moves a file-store deployment onto
+  Postgres + S3 with the audit chain copied verbatim and verified (0.0.15,
+  [ADR-0026](docs/adr/0026-store-blob-migration.md)).
+- **Identity & CLI** — OIDC browser SSO + CLI loopback-PKCE public client, login-by-URL
+  discovery, refresh tokens, `doctor` / `whoami` / `me` (0.0.3); deployment-anchored
+  `artifacta upgrade` + install-by-URL + `GET /version` (0.0.4,
+  [ADR-0021](docs/adr/0021-cli-upgrade-version-check.md)); Okta strict-redirect login fix
+  (0.0.6); full CLI↔UI parity for sharing / visibility / label and comments (0.0.7); remote
+  audit verify + smarter `healthcheck` + `public` visibility alias (0.0.8).
+- **Publishing & rendering** — render parity for React / JSX, Markdown (GFM), Mermaid, and
+  SVG, with an air-gapped self-contained bundle mode and an `ARTIFACTA_CDN_EGRESS` posture
+  flag (0.0.9, [ADR-0023](docs/adr/0023-flag-based-render-egress-and-multiformat.md));
+  browser artifact upload behind a toggle (0.0.10,
+  [ADR-0024](docs/adr/0024-browser-artifact-upload.md)) and browser upload of a **new
+  version** for upload-created artifacts (0.0.14); CLI content-type detection.
+- **Discovery & dashboard** — a searchable dashboard with card and list / table views,
+  per-column sort / filter, search, and pagination (0.0.12); artifact **search** across the
+  caller's visible set with pagination (0.0.11,
+  [ADR-0025](docs/adr/0025-artifact-search-and-pagination.md)); an optional searchable
+  `description` and owner-email shown on shared / org artifacts (0.0.13).
+- **Operations** — production observability: structured JSON logging + Prometheus
+  `/metrics`, graceful lifecycle / drain, container healthcheck, and a production compose
+  manifest (0.0.5, [ADR-0022](docs/adr/0022-observability-and-server-lifecycle.md)); a
+  one-command local dev stack (Postgres + MinIO + Keycloak) with a version-controlled realm
+  import (0.0.12).
+
 ## 0.0.16 — 2026-09-22
 
 ### Fixed
@@ -9,7 +86,7 @@ All notable changes to ArtifactA are documented here. Versions follow [SemVer](h
 - **S3 blob backend now works with role-based credentials (EKS Pod Identity / IRSA).** `NewBlobS3`
   previously built a static-credentials provider unconditionally, so with no
   `ARTIFACTA_S3_ACCESS_KEY_ID`/`SECRET` the S3 client failed on first use with `static credentials
-  are empty` — the backend could only authenticate with explicit keys. It now falls back to the AWS
+are empty` — the backend could only authenticate with explicit keys. It now falls back to the AWS
   SDK default credential chain (environment, EKS Pod Identity, IRSA, shared config/SSO, ...) when no
   access key is set, and keeps static keys when they are provided (MinIO/R2/dev). Unblocks keyless
   deployments of both the server and `artifacta migrate`.

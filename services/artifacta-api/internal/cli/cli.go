@@ -11,6 +11,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"mime"
 	"net"
@@ -59,6 +60,8 @@ Usage:
                             set an artifact's visibility explicitly
   artifacta label <slug> <label>
                             claim a custom subdomain label ({label}.{root})
+  artifacta edit <slug> [--title <title>] [--description <text>]
+                            edit an artifact's title and/or description
   artifacta comment add <slug> <text> [--reply <parent-id>]
                             add a comment (or a threaded reply) to an artifact
   artifacta comment ls <slug>
@@ -105,6 +108,8 @@ func Run(args []string) error {
 		return unshare(args[1:])
 	case "label":
 		return label(args[1:])
+	case "edit":
+		return edit(args[1:])
 	case "comment":
 		return comment(args[1:])
 	case "ls":
@@ -739,6 +744,57 @@ func visibility(args []string) error {
 	return nil
 }
 
+// edit changes an artifact's mutable metadata — its title and/or description
+// (PATCH /artifacts/<slug>). At least one of --title / --description must be
+// given, and only the flags actually passed are sent, so you can change one
+// without clearing the other (pass --description "" to clear the description).
+// Remote-only, like the other mutation commands.
+func edit(args []string) error {
+	if len(args) < 1 || strings.HasPrefix(args[0], "-") {
+		return fmt.Errorf("usage: artifacta edit <slug> [--title <title>] [--description <text>]")
+	}
+	slug := args[0]
+	fs := flag.NewFlagSet("edit", flag.ContinueOnError)
+	title := fs.String("title", "", "new title")
+	description := fs.String("description", "", "new description (pass empty to clear)")
+	if err := fs.Parse(args[1:]); err != nil {
+		return err
+	}
+	// Only send the flags the user actually passed, so an unset field is left
+	// unchanged rather than blanked.
+	var titlePtr, descPtr *string
+	fs.Visit(func(f *flag.Flag) {
+		switch f.Name {
+		case "title":
+			titlePtr = title
+		case "description":
+			descPtr = description
+		}
+	})
+	if titlePtr == nil && descPtr == nil {
+		return fmt.Errorf("nothing to edit: pass --title and/or --description")
+	}
+	if titlePtr != nil && strings.TrimSpace(*titlePtr) == "" {
+		return fmt.Errorf("--title must not be empty")
+	}
+	c, err := config.Load()
+	if err != nil {
+		return err
+	}
+	if !remoteTarget(c) {
+		return fmt.Errorf("artifacta edit requires a remote server — run: artifacta login <url>")
+	}
+	token, err := freshToken(&c)
+	if err != nil {
+		return err
+	}
+	if err := editRemote(c.BaseURL, token, slug, titlePtr, descPtr); err != nil {
+		return err
+	}
+	fmt.Printf("updated %s\n", slug)
+	return nil
+}
+
 // unshare revokes a person's access to an artifact (DELETE …/grants/{grantee}).
 // The grantee may be an email or a subject. Remote-only.
 func unshare(args []string) error {
@@ -965,6 +1021,29 @@ func setVisibilityRemote(baseURL, token, slug, visibility string) error {
 	}
 	if err := doRemote(http.MethodPatch, endpoint, token, "application/json", bytes.NewReader(body), http.StatusOK, nil); err != nil {
 		return fmt.Errorf("set-visibility failed: %w", err)
+	}
+	return nil
+}
+
+// editRemote PATCHes <baseURL>/artifacts/<slug> with the changed metadata fields
+// and `Authorization: Bearer <token>`. Only the non-nil fields are sent; a
+// present key (even an empty description) is an explicit set, an absent one is
+// left unchanged — matching the server's pointer-based partial update.
+func editRemote(baseURL, token, slug string, title, description *string) error {
+	endpoint := remoteURL(baseURL, "/artifacts/"+url.PathEscape(slug))
+	payload := map[string]string{}
+	if title != nil {
+		payload["title"] = *title
+	}
+	if description != nil {
+		payload["description"] = *description
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	if err := doRemote(http.MethodPatch, endpoint, token, "application/json", bytes.NewReader(body), http.StatusOK, nil); err != nil {
+		return fmt.Errorf("edit failed: %w", err)
 	}
 	return nil
 }

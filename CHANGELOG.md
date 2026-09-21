@@ -10,6 +10,17 @@ cut and then rolls up the capabilities accumulated since the `0.0.1` prototype.
 
 ### Added
 
+- **Edit an artifact's title and description after publishing** (spec 11). A new owner-only
+  `PATCH /artifacts/{slug}` updates the title and/or description (searchable metadata, ADR-0025)
+  — the versioned bytes are immutable and untouched. Reachable three ways: an **Edit** control in
+  the viewer, a new **`artifacta edit <slug> [--title …] [--description …]`** CLI command, and the
+  endpoint itself. A new `AUDIT_ACTION_EDIT` audit event records each change.
+- **Upload a new version from the viewer** (spec 11). An owner viewing an upload-created artifact
+  now gets an "Upload a new version" control in the viewer (not just the dashboard), reusing the
+  existing `POST /artifacts/{slug}/versions` (ADR-0024). Shown only when the deployment's upload
+  UI is on and the artifact was itself created via upload; the dialog also points UI-first users
+  at the equivalent `artifacta publish --update` for the CLI. The `/artifacts/{slug}` metadata now
+  returns `via_upload` and `upload_enabled` so the static viewer can gate the control.
 - **Forms work inside artifacts** (`allow-forms`). The artifact sandbox now permits
   `<form>` submission. `allow-same-origin` is deliberately kept **off** — the frame stays a
   null (opaque) origin, so artifact JS still cannot reach the shell's session cookie,

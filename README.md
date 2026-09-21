@@ -54,7 +54,7 @@ audited, and expired entirely on infrastructure the operator owns.
 - 🖼️ **Sandboxed viewer** — artifacts render in a null-origin, strict-CSP iframe (quality on par with the vendor viewer). In-page anchors scroll, external links open in a new tab, and forms work — while artifact JS stays walled off from the shell's session ([ADR-0027](docs/adr/0027-external-artifact-links-new-tab.md)).
 - 🧩 **Render parity** — publishes what assistants actually emit: React/JSX, Markdown (GFM), Mermaid, SVG, and HTML — with an air-gapped, self-contained bundle mode ([ADR-0023](docs/adr/0023-flag-based-render-egress-and-multiformat.md)).
 - 🔎 **Searchable dashboard** — card and list/table views with per-column sort/filter, search across everything you can see (yours, shared-with-you, org), and pagination. Publish from the browser too (upload UI, behind a toggle).
-- 🕓 **Immutable versioning** — `artifacta publish --update <slug>` appends a new version; old versions stay addressable.
+- 🕓 **Immutable versioning** — `artifacta publish --update <slug>` appends a new version; old versions stay addressable. Owners can also **edit the title/description** and **upload a new version** right from the viewer (an upload-created artifact), no CLI required.
 - 💬 **Anchored, threaded comments** — comment on selected text, pinned to a version, gated by view access.
 - 🎨 **Per-deployment branding** — drop your org's logo and name in the navbar so it reads as your own tool.
 - 🗄️ **Pluggable storage** — start on the zero-dep file store; flip to **Postgres** (GORM, auto-migrates on startup) for metadata and an **S3-compatible blob backend** (AWS/MinIO/R2/B2/Wasabi) for bytes for a fully horizontally-scalable deployment ([ADR-0009](docs/adr/0009-postgres-store-adapter.md), [ADR-0006](docs/adr/0006-s3-blob-adapter-backend-only.md)). An offline, resumable **`artifacta migrate`** moves a file-store deployment onto them without losing history.
@@ -121,20 +121,21 @@ Regenerate schema types after editing proto: `cd packages/schema && ./scripts/ge
 
 ### CLI reference
 
-| Command                                    | Does                                                   |
-| ------------------------------------------ | ------------------------------------------------------ |
-| `artifacta login`                          | Set up local identity + session token                  |
-| `artifacta publish <file>`                 | Publish a new artifact, print its private link         |
-| `artifacta publish --update <slug> <file>` | Append a new immutable version to an existing artifact |
-| `artifacta versions <slug>`                | List an artifact's versions                            |
-| `artifacta share <slug> <grantee-sub>`     | Share with a subject (sets visibility to `INVITED`)    |
-| `artifacta ls`                             | List your artifacts                                    |
-| `artifacta serve`                          | Run the viewer server                                  |
-| `artifacta audit verify`                   | Verify the audit-log hash chain (file or Postgres)     |
-| `artifacta upgrade`                        | Recommend the CLI version matching your deployment     |
-| `artifacta doctor` / `whoami`              | Connectivity + auth health check; print your identity  |
-| `artifacta migrate`                        | Offline file-store → Postgres/S3 data migration        |
-| `artifacta version`                        | Print the build version                                |
+| Command                                         | Does                                                   |
+| ----------------------------------------------- | ------------------------------------------------------ |
+| `artifacta login`                               | Set up local identity + session token                  |
+| `artifacta publish <file>`                      | Publish a new artifact, print its private link         |
+| `artifacta publish --update <slug> <file>`      | Append a new immutable version to an existing artifact |
+| `artifacta versions <slug>`                     | List an artifact's versions                            |
+| `artifacta share <slug> <grantee-sub>`          | Share with a subject (sets visibility to `INVITED`)    |
+| `artifacta edit <slug> [--title/--description]` | Edit an artifact's title and/or description            |
+| `artifacta ls`                                  | List your artifacts                                    |
+| `artifacta serve`                               | Run the viewer server                                  |
+| `artifacta audit verify`                        | Verify the audit-log hash chain (file or Postgres)     |
+| `artifacta upgrade`                             | Recommend the CLI version matching your deployment     |
+| `artifacta doctor` / `whoami`                   | Connectivity + auth health check; print your identity  |
+| `artifacta migrate`                             | Offline file-store → Postgres/S3 data migration        |
+| `artifacta version`                             | Print the build version                                |
 
 Also available: `visibility`, `unshare`, `label`, `comment`, `healthcheck`, `search` — run `artifacta --help` for the full set.
 

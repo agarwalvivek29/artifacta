@@ -807,7 +807,13 @@
           const once = () => { if (!revealed) { revealed = true; reveal(); } };
           frame.onload = once;
           setTimeout(once, 4000);
-          frame.srcdoc = html + BRIDGE;
+          // A <meta http-equiv="refresh"> inside an artifact navigates the frame
+          // on its own -- to the shell for a relative url (nesting the viewer), or
+          // off-site -- an auto-navigation the viewer never intended. It fires
+          // during parse, before the end-of-body bridge could intercept it, so
+          // strip it here; click/submit navigations are contained by the bridge.
+          const framed = html.replace(/<meta\b[^>]*?http-equiv\s*=\s*["']?\s*refresh\b[^>]*>/gi, '');
+          frame.srcdoc = framed + BRIDGE;
         } catch (e) {
           show('error');
           return;

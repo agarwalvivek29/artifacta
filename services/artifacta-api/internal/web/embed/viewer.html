@@ -40,9 +40,6 @@
     .slug{font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--muted);
       white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     .spacer{flex:1}
-    .chip{display:inline-flex;align-items:center;gap:6px;font-family:"IBM Plex Mono",monospace;font-size:11px;
-      color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:2px 9px}
-    .chip::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--muted)}
 
     .viewing{font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--muted);white-space:nowrap}
     .vswitch{display:none;align-items:center;gap:7px}
@@ -54,6 +51,11 @@
     .vswitch select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 
     #frame{flex:1;border:0;width:100%;display:none;background:#fff}
+    /* attribution footer: open-source name + license, links to the repo */
+    .foot{flex:none;display:flex;align-items:center;justify-content:center;gap:7px;height:30px;padding:0 16px;
+      font-size:11.5px;color:var(--muted);background:var(--surface);border-top:1px solid var(--line);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .foot a{color:var(--muted);font-weight:600;text-decoration:none}
+    .foot a:hover{color:var(--ink);text-decoration:underline}
     /* center panel for loading / denied / error */
     .panel{flex:1;display:none;place-items:center;padding:32px}
     .panel.show{display:grid}
@@ -90,6 +92,17 @@
     .sbtn:hover{background:var(--accent-hover);border-color:var(--accent-hover)}
     .sbtn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
     .sbtn svg{width:14px;height:14px}
+    /* These buttons set an explicit display, which by itself overrides the UA
+       [hidden]{display:none} (a normal author rule beats the UA rule at equal
+       specificity). Without this, the `hidden` attribute does NOT hide them and
+       owner-only controls leak to non-owners. Make `hidden` authoritative. */
+    .sbtn[hidden],.cbtn[hidden],.pencil[hidden]{display:none!important}
+    /* Artifact title in the top bar + the owner-only edit pencil beside it. */
+    .title{font-weight:650;font-size:14px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:40vw}
+    .pencil{flex:none;display:inline-grid;place-items:center;width:26px;height:26px;border-radius:7px;border:1px solid transparent;background:transparent;color:var(--muted);cursor:pointer;margin-left:-6px}
+    .pencil:hover{color:var(--ink);background:var(--surface-2);border-color:var(--line)}
+    .pencil:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+    .pencil svg{width:15px;height:15px}
 
     /* comments drawer */
     .drawer{position:fixed;top:48px;right:0;bottom:0;width:340px;max-width:92vw;z-index:20;
@@ -278,6 +291,10 @@
 <body>
   <div class="bar">
     <a class="brand" href="/"><span class="mark"></span> ArtifactA</a>
+    <span class="title" id="title"></span>
+    <button class="pencil" id="editpencil" type="button" title="Edit title & description" aria-label="Edit title and description" hidden>
+      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 20h4L18.5 9.5a2.1 2.1 0 0 0-3-3L5 17v3Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M13.5 6.5l3 3" stroke="currentColor" stroke-width="2"/></svg>
+    </button>
     <span class="slug" id="slug"></span>
     <span class="spacer"></span>
     <span class="viewing" id="viewing"></span>
@@ -289,10 +306,6 @@
       <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="18" cy="5" r="2.6" stroke="currentColor" stroke-width="2"/><circle cx="6" cy="12" r="2.6" stroke="currentColor" stroke-width="2"/><circle cx="18" cy="19" r="2.6" stroke="currentColor" stroke-width="2"/><path d="M8.3 10.8l7.4-4.3M8.3 13.2l7.4 4.3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
       Share
     </button>
-    <button class="sbtn" id="editbtn" type="button" title="Edit title & description" hidden>
-      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 20h4L18.5 9.5a2.1 2.1 0 0 0-3-3L5 17v3Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M13.5 6.5l3 3" stroke="currentColor" stroke-width="2"/></svg>
-      Edit
-    </button>
     <button class="sbtn" id="nvbtn" type="button" title="Upload a new version" hidden>
       <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 16V5M8 9l4-4 4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 19h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
       New version
@@ -301,7 +314,6 @@
       <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 5h16v11H8l-4 3V5Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
       Comments <span class="count" id="ccount">0</span>
     </button>
-    <span class="chip">sandboxed</span>
   </div>
 
   <!-- comments drawer (ADR-0014/0015): version-pinned, optionally anchored feedback -->
@@ -358,6 +370,11 @@
        the frame stays a null (opaque) origin so artifact JS can never reach the shell's
        session cookie, storage, or same-origin API routes (ADR-0008). -->
   <iframe id="frame" sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox" referrerpolicy="no-referrer" title="artifact"></iframe>
+
+  <footer class="foot">
+    <a href="https://github.com/agarwalvivek29/artifacta" target="_blank" rel="noopener noreferrer">ArtifactA</a>
+    <span>· open source · Apache-2.0 · contributions welcome on GitHub</span>
+  </footer>
 
   <!-- floating affordance shown over a text selection inside the artifact (ADR-0015) -->
   <button class="addcomment" id="addcomment" type="button">
@@ -919,14 +936,18 @@
         // The artifact is viewable (metadata succeeded), so surface comments.
         cbtn.hidden = false;
 
-        // Owners get the Share control in the top bar (bug fix: sharing was
-        // previously reachable only from the dashboard, never the viewer). Owners
-        // also get an Edit control (title/description) and, for an upload-created
-        // artifact on a deployment with the upload UI on, an "Upload a new version"
-        // control — so a UI-first user never has to drop to the CLI (they still can).
+        // Everyone who can view sees the artifact's title in the top bar.
+        document.getElementById('title').textContent = data.title || 'Untitled artifact';
+        document.title = (data.title || slug) + ' · ArtifactA';
+
+        // Owner-only controls. These are gated on is_owner AND actually hidden by
+        // the `hidden` attribute (see the .sbtn[hidden] rule) — a non-owner sees
+        // none of them. The pencil beside the title edits title/description; the
+        // Share button manages visibility/invites; "Upload a new version" appears
+        // only for an upload-created artifact on a deployment with the upload UI on.
         if (isOwner) {
           document.getElementById('sharebtn').hidden = false;
-          document.getElementById('editbtn').hidden = false;
+          document.getElementById('editpencil').hidden = false;
           if (data.upload_enabled && data.via_upload) {
             document.getElementById('nvform').setAttribute('action', '/artifacts/' + encodeURIComponent(slug) + '/versions');
             document.getElementById('nvbtn').hidden = false;
@@ -1117,12 +1138,12 @@
         if(!title){ el('edErr').textContent = 'Title can’t be empty.'; return; }
         el('edSave').disabled = true;
         api('PATCH', '/artifacts/' + encodeURIComponent(shSlug), { title: title, description: el('edDescInput').value.trim() })
-          .then(r => { if(!r.ok) throw 0; el('shTitle').textContent = title; document.title = title + ' · ArtifactA'; closeEdit(); showToast('Saved'); })
+          .then(r => { if(!r.ok) throw 0; el('title').textContent = title; el('shTitle').textContent = title; document.title = title + ' · ArtifactA'; closeEdit(); showToast('Saved'); })
           .catch(() => { el('edErr').textContent = 'Couldn’t save. Try again.'; })
           .finally(() => { el('edSave').disabled = false; });
       }
-      const editbtn = el('editbtn');
-      if (editbtn) editbtn.addEventListener('click', openEdit);
+      const editpencil = el('editpencil');
+      if (editpencil) editpencil.addEventListener('click', openEdit);
       el('edClose').addEventListener('click', closeEdit);
       el('edSave').addEventListener('click', saveEdit);
       edOv.addEventListener('click', e => { if(e.target === edOv) closeEdit(); });

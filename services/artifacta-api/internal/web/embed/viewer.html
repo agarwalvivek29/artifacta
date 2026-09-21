@@ -333,7 +333,9 @@
     </div>
   </div>
 
-  <iframe id="frame" sandbox="allow-scripts" referrerpolicy="no-referrer" title="artifact"></iframe>
+  <!-- allow-popups(+escape) lets an external link open in a real new tab (ADR-0027);
+       the artifact frame itself stays a null-origin allow-scripts sandbox. -->
+  <iframe id="frame" sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox" referrerpolicy="no-referrer" title="artifact"></iframe>
 
   <!-- floating affordance shown over a text selection inside the artifact (ADR-0015) -->
   <button class="addcomment" id="addcomment" type="button">
@@ -450,13 +452,20 @@
       // navigations. Absolute links (scheme:... or //host) navigate normally.
       'var isRel=function(v){if(v==null||v==="")return true;' +
         'return v.charAt(0)!=="#"&&v.slice(0,2)!=="//"&&!/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(v);};' +
+      'var webAbs=function(v){if(!v)return false;var s=v.toLowerCase();' +
+        'return s.indexOf("//")===0||s.indexOf("http://")===0||s.indexOf("https://")===0;};' +
       'document.addEventListener("click",function(e){' +
         'var a=e.target&&e.target.closest?e.target.closest("a[href]"):null;if(!a)return;' +
         'var h=a.getAttribute("href");' +
         'if(h&&h.charAt(0)==="#"){e.preventDefault();var id=h.slice(1);' +
           'if(!id){window.scrollTo(0,0);return;}' +
           'try{location.hash=id;}catch(_){var t=document.getElementById(id);if(t)t.scrollIntoView();}return;}' +
-        'if(isRel(h))e.preventDefault();' +
+        'if(isRel(h)){e.preventDefault();return;}' +
+        // External web link: open in a new tab instead of replacing the artifact
+        // in-frame. The click is a real user gesture and the sandbox now allows
+        // popups to escape, so window.open yields a normal-context tab;
+        // noopener,noreferrer sever the opener/referrer back-channel.
+        'if(webAbs(h)){e.preventDefault();try{window.open(h,"_blank","noopener,noreferrer");}catch(_){}}' +
       '},true);' +
       'document.addEventListener("submit",function(e){' +
         'var f=e.target;if(!f||f.tagName!=="FORM")return;' +

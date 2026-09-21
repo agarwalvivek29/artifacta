@@ -440,6 +440,28 @@
       'var t;document.addEventListener("selectionchange",function(){clearTimeout(t);t=setTimeout(report,250);});' +
       'document.addEventListener("click",function(e){var cr=caretAt(e.clientX,e.clientY);if(!cr)return;' +
         'for(var i=0;i<ranges.length;i++){try{if(ranges[i].range.isPointInRange(cr.startContainer,cr.startOffset)){post("hn-focus",{id:ranges[i].id});return;}}catch(err){}}});' +
+      // Contain the frame. A srcdoc document inherits its base URL from the
+      // parent shell (/a/<slug>), and the frame is a null-origin sandbox with no
+      // valid same-origin destination -- so anything that resolves RELATIVE (a
+      // "#id" TOC entry, "page.html", "/path", "?q", href="", or a form with no /
+      // relative action) would navigate THIS frame to the shell and reload the
+      // whole viewer inside itself ("artifacta inside artifacta"). Handle "#id"
+      // as an in-page scroll against about:srcdoc; swallow other relative
+      // navigations. Absolute links (scheme:... or //host) navigate normally.
+      'var isRel=function(v){if(v==null||v==="")return true;' +
+        'return v.charAt(0)!=="#"&&v.slice(0,2)!=="//"&&!/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(v);};' +
+      'document.addEventListener("click",function(e){' +
+        'var a=e.target&&e.target.closest?e.target.closest("a[href]"):null;if(!a)return;' +
+        'var h=a.getAttribute("href");' +
+        'if(h&&h.charAt(0)==="#"){e.preventDefault();var id=h.slice(1);' +
+          'if(!id){window.scrollTo(0,0);return;}' +
+          'try{location.hash=id;}catch(_){var t=document.getElementById(id);if(t)t.scrollIntoView();}return;}' +
+        'if(isRel(h))e.preventDefault();' +
+      '},true);' +
+      'document.addEventListener("submit",function(e){' +
+        'var f=e.target;if(!f||f.tagName!=="FORM")return;' +
+        'if(isRel(f.getAttribute("action")))e.preventDefault();' +
+      '},true);' +
       'window.addEventListener("message",function(e){var d=e.data;if(!d||d.source!=="artifacta")return;' +
         'if(d.type==="hn-anchors"){paint(d.anchors||[]);}' +
         'else if(d.type==="hn-scroll"){var m=null;for(var i=0;i<ranges.length;i++){if(ranges[i].id===d.id){m=ranges[i];break;}}' +

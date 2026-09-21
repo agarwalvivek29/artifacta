@@ -77,6 +77,16 @@ Key variables:
 - `POST /v1/[resource]` — [description]
 - [Add all endpoints]
 
+**CLI subcommands** (single `artifacta` binary; dispatcher in `internal/cli/cli.go`):
+
+- `artifacta migrate` — offline, one-shot, **resumable** data migration from a file-store
+  deployment onto Postgres + S3 (ADR-0026, `docs/specs/10-store-blob-migration.md`). Copies
+  artifacts/versions/grants/comments, the audit chain **verbatim** (via the migration-only
+  `Store.AppendRaw`, which preserves seq/prev_hash/hash and does NOT re-chain), and blob bundles
+  (sha256-checked). Enumerates via the new `Store.AllArtifacts`. Flags:
+  `--from-data-dir`, `--to-database-url`, `--to-s3-*` (fall back to `ARTIFACTA_S3_*`).
+  `AppendRaw` must never be wired to a publish/API path.
+
 ### Consumes
 
 - `[SERVICE_B] POST /v1/[resource]` — [description]

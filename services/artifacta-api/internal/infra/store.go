@@ -186,6 +186,19 @@ func (s *FileStore) GetArtifact(slug string) (*artifactav1.Artifact, bool, error
 	return a, ok, nil
 }
 
+// AllArtifacts returns every artifact regardless of owner/visibility/grant — the
+// full enumeration migration drives from (ADR-0026). A snapshot copy of the map
+// under the lock.
+func (s *FileStore) AllArtifacts() ([]*artifactav1.Artifact, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]*artifactav1.Artifact, 0, len(s.arts))
+	for _, a := range s.arts {
+		out = append(out, a)
+	}
+	return out, nil
+}
+
 func (s *FileStore) ListByOwner(sub string) ([]*artifactav1.Artifact, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -478,6 +491,47 @@ func (s *FileStore) Append(ev *artifactav1.AuditEvent) error {
 	defer fh.Close()
 	_, err = fh.Write(append(line, '\n'))
 	return err
+}
+
+// AppendRaw inserts ev VERBATIM, preserving its seq/prev_hash/hash exactly and
+// NOT re-chaining (ADR-0026) — migration-only. Resumable: an event whose seq is
+// already present is a no-op when the stored hash is identical, and an error when
+// it differs (a divergent/foreign trail is refused, never overwritten). Never wire
+// this to a publish path; the runtime uses Append.
+func (s *FileStore) AppendRaw(ev *artifactav1.AuditEvent) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	existing, err := readAuditLog(s.dir)
+	if err != nil {
+		return err
+	}
+	for _, e := range existing {
+		if e.GetSeq() == ev.GetSeq() {
+			if e.GetHash() == ev.GetHash() {
+				return nil // already migrated — idempotent resume
+			}
+			return fmt.Errorf("audit event seq %d already present with a different hash (divergent trail)", ev.GetSeq())
+		}
+	}
+	line, err := protojson.Marshal(ev)
+	if err != nil {
+		return err
+	}
+	fh, err := os.OpenFile(s.auditPath(), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	defer fh.Close()
+	if _, err := fh.Write(append(line, '\n')); err != nil {
+		return err
+	}
+	// Keep the in-memory chain head consistent when this event extends it, so a
+	// later Append() chains onto the correct head.
+	if ev.GetSeq() > s.seq {
+		s.seq = ev.GetSeq()
+		s.last = ev.GetHash()
+	}
+	return nil
 }
 
 // AuditEvents returns every audit row in seq order, so `audit verify` can check

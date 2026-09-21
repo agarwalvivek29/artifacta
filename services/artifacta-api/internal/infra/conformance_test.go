@@ -153,6 +153,18 @@ func runStoreConformance(t *testing.T, st api.Store) {
 		t.Fatal("ListByVisibility(PRIVATE) leaked an ORG artifact")
 	}
 
+	// AllArtifacts (ADR-0026): the full, unscoped enumeration migration drives from.
+	// Relative assertion (contains our three) so it holds on a shared, non-empty store.
+	all, err := st.AllArtifacts()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{slug, slugOrg, slugPriv} {
+		if !containsSlug(all, want) {
+			t.Fatalf("AllArtifacts missing %s", want)
+		}
+	}
+
 	// Search (ADR-0025): identical behaviour on both backends. Uses a unique token
 	// so assertions are absolute even on a shared, non-empty store. Covers the text
 	// filter, owner_email match, owner-scoped grantee match (the leak defense),
@@ -286,12 +298,59 @@ func runStoreConformance(t *testing.T, st api.Store) {
 	}
 }
 
+// runAppendRawConformance verifies the verbatim, resumable audit-insert path
+// (ADR-0026) on either backend. It uses a unique, high seq so it never collides with
+// the contiguous seqs the rest of the suite writes via Append — safe on a shared DB.
+func runAppendRawConformance(t *testing.T, st api.Store) {
+	t.Helper()
+	seq := time.Now().UnixNano() // unique + far above any Append-assigned seq
+	ev := &artifactav1.AuditEvent{
+		Seq: seq, PrevHash: "SENTINEL_PREV", Hash: "SENTINEL_HASH",
+		Ts: timestamppb.Now(), Slug: "raw", Action: artifactav1.AuditAction_AUDIT_ACTION_VIEW, Allowed: true,
+	}
+	if err := st.AppendRaw(ev); err != nil {
+		t.Fatalf("AppendRaw: %v", err)
+	}
+	// Verbatim: the stored row keeps the source seq/prev_hash/hash exactly (Append
+	// would have overwritten them with computed values).
+	events, err := st.AuditEvents()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got *artifactav1.AuditEvent
+	for _, e := range events {
+		if e.GetSeq() == seq {
+			got = e
+			break
+		}
+	}
+	if got == nil {
+		t.Fatalf("AppendRaw event seq %d not found", seq)
+	}
+	if got.GetHash() != "SENTINEL_HASH" || got.GetPrevHash() != "SENTINEL_PREV" {
+		t.Fatalf("AppendRaw did not preserve verbatim: hash=%q prev=%q", got.GetHash(), got.GetPrevHash())
+	}
+	// Idempotent resume: same seq + identical hash is a no-op.
+	if err := st.AppendRaw(ev); err != nil {
+		t.Fatalf("AppendRaw re-insert (identical) should be a no-op, got: %v", err)
+	}
+	// Divergence: same seq + different hash is refused (never overwritten).
+	diverged := &artifactav1.AuditEvent{
+		Seq: seq, PrevHash: "SENTINEL_PREV", Hash: "DIFFERENT_HASH",
+		Ts: timestamppb.Now(), Slug: "raw", Action: artifactav1.AuditAction_AUDIT_ACTION_VIEW, Allowed: true,
+	}
+	if err := st.AppendRaw(diverged); err == nil {
+		t.Fatal("AppendRaw of a divergent hash at the same seq should error, got nil")
+	}
+}
+
 func TestFileStore_Conformance(t *testing.T) {
 	st, err := infra.NewFileStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	runStoreConformance(t, st)
+	runAppendRawConformance(t, st)
 }
 
 // Runs only when ARTIFACTA_TEST_DATABASE_URL points at a reachable postgres
@@ -306,6 +365,7 @@ func TestSQLStore_Conformance(t *testing.T) {
 		t.Fatalf("NewSQLStore: %v", err)
 	}
 	runStoreConformance(t, st)
+	runAppendRawConformance(t, st)
 }
 
 func containsSlug(arts []*artifactav1.Artifact, slug string) bool {

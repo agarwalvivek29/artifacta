@@ -159,6 +159,13 @@ func (s *SQLStore) ListByOwner(sub string) ([]*artifactav1.Artifact, error) {
 	return s.listArtifacts("owner_sub = ?", sub)
 }
 
+// AllArtifacts returns every artifact regardless of owner/visibility/grant — the
+// full enumeration migration drives from (ADR-0026). A full-table scan, acceptable
+// for the one-shot migrate command (off the hot path).
+func (s *SQLStore) AllArtifacts() ([]*artifactav1.Artifact, error) {
+	return s.listArtifacts("1 = 1")
+}
+
 func (s *SQLStore) ListByVisibility(v artifactav1.Visibility) ([]*artifactav1.Artifact, error) {
 	return s.listArtifacts("visibility = ?", int32(v))
 }
@@ -463,6 +470,33 @@ func (s *SQLStore) Append(ev *artifactav1.AuditEvent) error {
 			return e
 		}
 		return tx.Create(&auditRow{Seq: ev.GetSeq(), Hash: ev.GetHash(), Data: string(data)}).Error
+	})
+}
+
+// AppendRaw inserts ev VERBATIM, preserving its seq/prev_hash/hash exactly with no
+// re-chaining (ADR-0026) — migration-only, never a publish path. Resumable: a row
+// with the same seq and an identical hash is a no-op (idempotent resume); the same
+// seq with a different hash is an error (a divergent/foreign trail is refused, not
+// overwritten). The transaction makes the check-then-insert atomic.
+func (s *SQLStore) AppendRaw(ev *artifactav1.AuditEvent) error {
+	data, err := protojson.Marshal(ev)
+	if err != nil {
+		return err
+	}
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		var existing auditRow
+		e := tx.Where("seq = ?", ev.GetSeq()).First(&existing).Error
+		switch {
+		case e == nil:
+			if existing.Hash == ev.GetHash() {
+				return nil // already migrated — idempotent resume
+			}
+			return fmt.Errorf("audit event seq %d already present with a different hash (divergent trail)", ev.GetSeq())
+		case errors.Is(e, gorm.ErrRecordNotFound):
+			return tx.Create(&auditRow{Seq: ev.GetSeq(), Hash: ev.GetHash(), Data: string(data)}).Error
+		default:
+			return e
+		}
 	})
 }
 

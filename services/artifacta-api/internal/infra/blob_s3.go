@@ -9,6 +9,7 @@ import (
 	"io/fs"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
@@ -43,9 +44,13 @@ type S3Config struct {
 	ForcePathStyle  bool
 }
 
-// NewBlobS3 builds the adapter from static credentials + endpoint. It does not
-// perform any network call, so a misconfigured endpoint surfaces on first
-// Put/Get rather than at construction.
+// NewBlobS3 builds the adapter from an endpoint plus either static credentials or
+// the AWS default credential chain. When AccessKeyID is set, those static keys are
+// used (MinIO/R2/dev, or an explicit access-key deployment); when it is empty, the
+// SDK's default chain is loaded (environment, EKS Pod Identity, IRSA, shared
+// config/SSO, ...), so the adapter works with a role and no keys. It performs no
+// network call, so a misconfigured endpoint surfaces on first Put/Get rather than
+// at construction.
 func NewBlobS3(ctx context.Context, cfg S3Config) (*BlobS3, error) {
 	if cfg.Bucket == "" {
 		return nil, fmt.Errorf("s3 blob: bucket is required (set ARTIFACTA_S3_BUCKET)")
@@ -54,9 +59,18 @@ func NewBlobS3(ctx context.Context, cfg S3Config) (*BlobS3, error) {
 	if region == "" {
 		region = "us-east-1" // MinIO/R2 ignore the region but the signer requires one
 	}
-	awsCfg := aws.Config{
-		Region:      region,
-		Credentials: credentials.NewStaticCredentialsProvider(cfg.AccessKeyID, cfg.SecretAccessKey, ""),
+	var awsCfg aws.Config
+	if cfg.AccessKeyID != "" {
+		awsCfg = aws.Config{
+			Region:      region,
+			Credentials: credentials.NewStaticCredentialsProvider(cfg.AccessKeyID, cfg.SecretAccessKey, ""),
+		}
+	} else {
+		loaded, err := config.LoadDefaultConfig(ctx, config.WithRegion(region))
+		if err != nil {
+			return nil, fmt.Errorf("s3 blob: load aws config: %w", err)
+		}
+		awsCfg = loaded
 	}
 	client := s3.NewFromConfig(awsCfg, func(o *s3.Options) {
 		if cfg.Endpoint != "" {

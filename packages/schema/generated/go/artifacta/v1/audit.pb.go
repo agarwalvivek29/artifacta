@@ -31,6 +31,9 @@ const (
 	AuditAction_AUDIT_ACTION_VIEW        AuditAction = 2
 	AuditAction_AUDIT_ACTION_SHARE       AuditAction = 3
 	AuditAction_AUDIT_ACTION_DENY        AuditAction = 4
+	// EDIT records an owner changing an artifact's mutable metadata (title /
+	// description). The versioned bytes are immutable and unaffected.
+	AuditAction_AUDIT_ACTION_EDIT AuditAction = 5
 )
 
 // Enum value maps for AuditAction.
@@ -41,6 +44,7 @@ var (
 		2: "AUDIT_ACTION_VIEW",
 		3: "AUDIT_ACTION_SHARE",
 		4: "AUDIT_ACTION_DENY",
+		5: "AUDIT_ACTION_EDIT",
 	}
 	AuditAction_value = map[string]int32{
 		"AUDIT_ACTION_UNSPECIFIED": 0,
@@ -48,6 +52,7 @@ var (
 		"AUDIT_ACTION_VIEW":        2,
 		"AUDIT_ACTION_SHARE":       3,
 		"AUDIT_ACTION_DENY":        4,
+		"AUDIT_ACTION_EDIT":        5,
 	}
 )
 
@@ -195,13 +200,14 @@ const file_artifacta_v1_audit_proto_rawDesc = "" +
 	"\x06action\x18\x05 \x01(\x0e2\x19.artifacta.v1.AuditActionR\x06action\x12\x18\n" +
 	"\aallowed\x18\x06 \x01(\bR\aallowed\x12\x1b\n" +
 	"\tprev_hash\x18\a \x01(\tR\bprevHash\x12\x12\n" +
-	"\x04hash\x18\b \x01(\tR\x04hash*\x8b\x01\n" +
+	"\x04hash\x18\b \x01(\tR\x04hash*\xa2\x01\n" +
 	"\vAuditAction\x12\x1c\n" +
 	"\x18AUDIT_ACTION_UNSPECIFIED\x10\x00\x12\x18\n" +
 	"\x14AUDIT_ACTION_PUBLISH\x10\x01\x12\x15\n" +
 	"\x11AUDIT_ACTION_VIEW\x10\x02\x12\x16\n" +
 	"\x12AUDIT_ACTION_SHARE\x10\x03\x12\x15\n" +
-	"\x11AUDIT_ACTION_DENY\x10\x04B\xc9\x01\n" +
+	"\x11AUDIT_ACTION_DENY\x10\x04\x12\x15\n" +
+	"\x11AUDIT_ACTION_EDIT\x10\x05B\xc9\x01\n" +
 	"\x10com.artifacta.v1B\n" +
 	"AuditProtoP\x01ZXgithub.com/agarwalvivek29/here.now/packages/schema/generated/go/artifacta/v1;artifactav1\xa2\x02\x03AXX\xaa\x02\fArtifacta.V1\xca\x02\fArtifacta\\V1\xe2\x02\x18Artifacta\\V1\\GPBMetadata\xea\x02\rArtifacta::V1b\x06proto3"
 

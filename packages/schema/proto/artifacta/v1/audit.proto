@@ -13,6 +13,9 @@ enum AuditAction {
   AUDIT_ACTION_VIEW = 2;
   AUDIT_ACTION_SHARE = 3;
   AUDIT_ACTION_DENY = 4;
+  // EDIT records an owner changing an artifact's mutable metadata (title /
+  // description). The versioned bytes are immutable and unaffected.
+  AUDIT_ACTION_EDIT = 5;
 }
 
 // AuditEvent is one row of the inbuilt, append-only, hash-chained audit trail.

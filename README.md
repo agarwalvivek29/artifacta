@@ -16,13 +16,13 @@ access control, and a tamper-evident audit trail all stay on infra you control.
 
 ## At a glance
 
-|                          |                                                                                                                                                     |
-| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **What it is**           | A self-hostable service that stores and serves AI-generated artifacts behind your own auth.                                                         |
-| **The problem it kills** | AI share links persist sensitive data (PII, internal analytics, dashboards) on a vendor's cloud you don't govern.                                   |
-| **What you get**         | A private `/a/{slug}` link, per-artifact RBAC, a hash-chained audit trail — all on your infra.                                                      |
-| **Shape**                | One Go binary: a CLI **and** a sandboxed viewer server. Zero external deps to start.                                                                |
-| **Status**               | **v0.0.1 released** — publish, owner Share UI, subdomain hosting, invite-by-email, selectable file/Postgres store. Images + CLI on GHCR & Releases. |
+|                          |                                                                                                                                                                                                                             |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **What it is**           | A self-hostable service that stores and serves AI-generated artifacts behind your own auth.                                                                                                                                 |
+| **The problem it kills** | AI share links persist sensitive data (PII, internal analytics, dashboards) on a vendor's cloud you don't govern.                                                                                                           |
+| **What you get**         | A private `/a/{slug}` link, per-artifact RBAC, a hash-chained audit trail — all on your infra.                                                                                                                              |
+| **Shape**                | One Go binary: a CLI **and** a sandboxed viewer server. Zero external deps to start.                                                                                                                                        |
+| **Status**               | **v0.1.0 — first stable release.** Publish + sandboxed viewer, searchable dashboard, browser upload, render parity (React/Markdown/Mermaid/SVG), file/Postgres store + S3 blobs, OIDC SSO. Images + CLI on GHCR & Releases. |
 
 ---
 
@@ -51,11 +51,13 @@ audited, and expired entirely on infrastructure the operator owns.
 - 🤝 **Owner Share UI** — a dialog on each artifact to set visibility, **invite teammates by email**, and claim a subdomain, no CLI needed ([ADR-0019](docs/adr/0019-invite-by-email-grants.md)).
 - 👥 **Per-artifact RBAC** — the allow/deny decision runs in the app, per artifact; grants bind to an immutable subject **or a verified email**.
 - 🧾 **Inbuilt tamper-evident audit** — who-viewed-what, hash-chained in the app's own store, never routed to an external system.
-- 🖼️ **Sandboxed viewer** — artifacts render in a null-origin, strict-CSP iframe with quality on par with the vendor viewer.
+- 🖼️ **Sandboxed viewer** — artifacts render in a null-origin, strict-CSP iframe (quality on par with the vendor viewer). In-page anchors scroll, external links open in a new tab, and forms work — while artifact JS stays walled off from the shell's session ([ADR-0027](docs/adr/0027-external-artifact-links-new-tab.md)).
+- 🧩 **Render parity** — publishes what assistants actually emit: React/JSX, Markdown (GFM), Mermaid, SVG, and HTML — with an air-gapped, self-contained bundle mode ([ADR-0023](docs/adr/0023-flag-based-render-egress-and-multiformat.md)).
+- 🔎 **Searchable dashboard** — card and list/table views with per-column sort/filter, search across everything you can see (yours, shared-with-you, org), and pagination. Publish from the browser too (upload UI, behind a toggle).
 - 🕓 **Immutable versioning** — `artifacta publish --update <slug>` appends a new version; old versions stay addressable.
 - 💬 **Anchored, threaded comments** — comment on selected text, pinned to a version, gated by view access.
 - 🎨 **Per-deployment branding** — drop your org's logo and name in the navbar so it reads as your own tool.
-- 🗄️ **Pluggable storage** — start on the zero-dep file store; flip to **Postgres** (GORM, schema auto-migrates on startup) for horizontal scale, one env var ([ADR-0009](docs/adr/0009-postgres-store-adapter.md)).
+- 🗄️ **Pluggable storage** — start on the zero-dep file store; flip to **Postgres** (GORM, auto-migrates on startup) for metadata and an **S3-compatible blob backend** (AWS/MinIO/R2/B2/Wasabi) for bytes for a fully horizontally-scalable deployment ([ADR-0009](docs/adr/0009-postgres-store-adapter.md), [ADR-0006](docs/adr/0006-s3-blob-adapter-backend-only.md)). An offline, resumable **`artifacta migrate`** moves a file-store deployment onto them without losing history.
 - 🤖 **Assistant-agnostic** — publish from a CLI, REST API, MCP connector, or an assistant Skill (Claude & others).
 
 ---
@@ -129,7 +131,12 @@ Regenerate schema types after editing proto: `cd packages/schema && ./scripts/ge
 | `artifacta ls`                             | List your artifacts                                    |
 | `artifacta serve`                          | Run the viewer server                                  |
 | `artifacta audit verify`                   | Verify the audit-log hash chain (file or Postgres)     |
+| `artifacta upgrade`                        | Recommend the CLI version matching your deployment     |
+| `artifacta doctor` / `whoami`              | Connectivity + auth health check; print your identity  |
+| `artifacta migrate`                        | Offline file-store → Postgres/S3 data migration        |
 | `artifacta version`                        | Print the build version                                |
+
+Also available: `visibility`, `unshare`, `label`, `comment`, `healthcheck`, `search` — run `artifacta --help` for the full set.
 
 ---
 
@@ -218,9 +225,9 @@ The reasoning behind the architecture lives in [`docs/adr/`](docs/adr/). Highlig
 
 ## Roadmap
 
-- **Shipped (v0.0.1)** — publish + private-by-default viewer, owner Share UI, subdomain hosting + no-login `LINK`, invite-by-email, per-org branding, selectable **file/Postgres** store, OIDC SSO + CLI loopback-PKCE, released images + CLI.
-- **Next** — S3-compatible blob adapter (the last piece for fully stateless multi-replica), Helm chart, Go module-path cleanup (`here.now` → `artifacta`).
-- **Later** — remote MCP connector, standalone rendering-parity frontend (the `apps/` fork).
+- **Shipped (v0.1.0, stable)** — publish + private-by-default sandboxed viewer; owner Share UI, subdomain hosting + no-login `LINK`, invite-by-email, per-org branding; searchable card/list dashboard + browser upload; render parity (React/Markdown/Mermaid/SVG); **file/Postgres** store + **S3-compatible blobs** + offline `artifacta migrate`; OIDC SSO + CLI loopback-PKCE; production observability (`/metrics`, structured logs); released images + CLI.
+- **Next** — Helm chart, Go module-path cleanup (`here.now` → `artifacta`).
+- **Later** — remote MCP connector, standalone rendering-parity frontend (the `apps/` fork), multi-file artifacts (entry document + sibling assets).
 
 ---
 

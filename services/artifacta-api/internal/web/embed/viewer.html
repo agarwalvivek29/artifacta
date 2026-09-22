@@ -51,11 +51,6 @@
     .vswitch select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 
     #frame{flex:1;border:0;width:100%;display:none;background:#fff}
-    /* attribution footer: open-source name + license, links to the repo */
-    .foot{flex:none;display:flex;align-items:center;justify-content:center;gap:7px;height:30px;padding:0 16px;
-      font-size:11.5px;color:var(--muted);background:var(--surface);border-top:1px solid var(--line);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-    .foot a{color:var(--muted);font-weight:600;text-decoration:none}
-    .foot a:hover{color:var(--ink);text-decoration:underline}
     /* center panel for loading / denied / error */
     .panel{flex:1;display:none;place-items:center;padding:32px}
     .panel.show{display:grid}
@@ -370,11 +365,6 @@
        the frame stays a null (opaque) origin so artifact JS can never reach the shell's
        session cookie, storage, or same-origin API routes (ADR-0008). -->
   <iframe id="frame" sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox" referrerpolicy="no-referrer" title="artifact"></iframe>
-
-  <footer class="foot">
-    <a href="https://github.com/agarwalvivek29/artifacta" target="_blank" rel="noopener noreferrer">ArtifactA</a>
-    <span>· open source · Apache-2.0 · contributions welcome on GitHub</span>
-  </footer>
 
   <!-- floating affordance shown over a text selection inside the artifact (ADR-0015) -->
   <button class="addcomment" id="addcomment" type="button">

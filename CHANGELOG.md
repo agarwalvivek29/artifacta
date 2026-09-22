@@ -21,11 +21,6 @@ All notable changes to ArtifactA are documented here. Versions follow [SemVer](h
 - **Removed the "sandboxed" chip** from the top bar — the sandbox itself is unchanged; the badge
   was only a label.
 
-### Added
-
-- **Open-source footer** in the viewer linking the ArtifactA name to the repository, with the
-  Apache-2.0 license, so contributors can find the project.
-
 ## 0.1.0 — 2026-09-22 — First stable release
 
 ArtifactA graduates from its `0.0.x` prototype line to a **stable** release. The full

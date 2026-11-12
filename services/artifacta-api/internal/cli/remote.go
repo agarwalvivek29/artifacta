@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -21,6 +22,29 @@ import (
 // for a refresh token so the CLI can mint fresh id_tokens without a new browser
 // login. Mirrors the server's advertised scopes (api.cliScopes).
 var cliScopes = []string{oidc.ScopeOpenID, "email", "profile", "offline_access"}
+
+// apiKeyPrefix mirrors domain.APIKeyPrefix for the CLI's sanity check.
+const apiKeyPrefix = "afa_"
+
+// loginScopes is cliScopes plus "groups" when the issuer advertises it in its
+// discovery document (ADR-0028): the server's service-account admin check reads
+// the id_token's groups claim. Only requested when advertised, because some
+// IdPs reject an unknown scope outright. A refresh keeps the scopes granted at
+// login, so this takes effect on the next `artifacta login`.
+func loginScopes(provider *oidc.Provider) []string {
+	var disc struct {
+		ScopesSupported []string `json:"scopes_supported"`
+	}
+	if err := provider.Claims(&disc); err != nil {
+		return cliScopes
+	}
+	for _, sc := range disc.ScopesSupported {
+		if sc == "groups" {
+			return append(append([]string{}, cliScopes...), "groups")
+		}
+	}
+	return cliScopes
+}
 
 // cliAuthConfig is the decoded body of GET /.well-known/artifacta-cli — the info
 // `artifacta login <url>` needs to bootstrap the loopback PKCE flow.
@@ -144,6 +168,14 @@ func isLocalhost(rawURL string) bool {
 // usable credential — never silently. Not-logged-in and a refresh that returns no
 // id_token both clear stored creds so the next command re-logs in cleanly (D2).
 func freshToken(c *config.Config) (string, error) {
+	// A service-account API key (ADR-0028) wins over any stored login, so a CI
+	// runner never silently publishes as whichever human last logged in there.
+	if key := strings.TrimSpace(os.Getenv("ARTIFACTA_API_KEY")); key != "" {
+		if !strings.HasPrefix(key, apiKeyPrefix) {
+			return "", fmt.Errorf("ARTIFACTA_API_KEY does not look like an artifacta API key (want %s…)", apiKeyPrefix)
+		}
+		return key, nil
+	}
 	// Fast path: a still-valid cached id_token needs no network round trip.
 	if c.AccessToken != "" && !tokenExpired(c.AccessTokenExpiry) {
 		return c.AccessToken, nil

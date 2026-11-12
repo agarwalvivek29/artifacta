@@ -68,6 +68,10 @@ Usage:
                             list an artifact's comments
   artifacta comment resolve <slug> <id>
                             resolve a comment thread (owner only)
+  artifacta sa create|list|disable [<name>]
+  artifacta sa key create|list|revoke <name> ...
+                            manage service accounts and their API keys (admins only;
+                            see 'artifacta sa help'). A bot uses ARTIFACTA_API_KEY.
   artifacta ls                list your artifacts
   artifacta serve             run the viewer server
   artifacta healthcheck [url] probe a server's /health (exit 0 = healthy); defaults to the
@@ -112,6 +116,8 @@ func Run(args []string) error {
 		return edit(args[1:])
 	case "comment":
 		return comment(args[1:])
+	case "sa", "serviceaccount", "serviceaccounts":
+		return serviceAccount(args[1:])
 	case "ls":
 		return ls()
 	case "serve":
@@ -282,7 +288,7 @@ func loginOIDC(c config.Config) error {
 		ClientSecret: c.OIDCClientSecret, // empty for the public CLI client (PKCE only)
 		RedirectURL:  redirectURL,
 		Endpoint:     provider.Endpoint(),
-		Scopes:       cliScopes, // includes offline_access → refresh token
+		Scopes:       loginScopes(provider), // offline_access → refresh token; groups when advertised
 	}
 
 	state, err := randState()
@@ -1262,6 +1268,10 @@ func whoami() error {
 	sub, email, err := meRemote(c.BaseURL, token)
 	if err != nil {
 		return err
+	}
+	if strings.HasPrefix(sub, "sa:") {
+		fmt.Printf("%s (service account, via ARTIFACTA_API_KEY)  @ %s\n", sub, c.BaseURL)
+		return nil
 	}
 	fmt.Printf("%s <%s>  @ %s\n", sub, email, c.BaseURL)
 	return nil

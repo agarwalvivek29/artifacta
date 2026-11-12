@@ -1319,6 +1319,12 @@ func serve() error {
 	// Service-account API keys (ADR-0028) are checked in front of whichever
 	// provider was selected above; non-key credentials pass through unchanged.
 	srv.Auth = &api.APIKeyAuth{Inner: srv.Auth, Store: st, Metrics: metrics, Logger: logger}
+	srv.SAAdminGroups = config.SplitList(c.SAAdminGroups)
+	srv.SAAdminEmails = config.SplitList(c.SAAdminEmails)
+	srv.SAKeyTTLs = config.SplitList(c.SAKeyTTLs)
+	if len(srv.SAAdminGroups)+len(srv.SAAdminEmails) > 0 {
+		fmt.Printf("service accounts: enabled (%d admin groups, %d admin emails)\n", len(srv.SAAdminGroups), len(srv.SAAdminEmails))
+	}
 	if c.CDNEgress {
 		fmt.Printf("render: CDN egress ALLOWED — artifacts may load deps from a CDN at view time\n")
 	} else {

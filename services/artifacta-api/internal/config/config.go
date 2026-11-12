@@ -62,6 +62,13 @@ type Config struct {
 	// OIDC browser-SSO settings (ADR-0007, FR6). When OIDCIssuer + OIDCClientID
 	// are set, the server wires the OIDC provider and its /login + /callback
 	// handlers; otherwise it falls back to the Local single-token adapter.
+	// Service-account admin (ADR-0028), comma-separated. SAAdminGroups are IdP
+	// groups (the CLI token's groups claim) and SAAdminEmails break-glass emails
+	// allowed to manage service accounts; both empty disables the feature.
+	// SAKeyTTLs lists the key lifetimes admins may mint (default 30d,90d,never).
+	SAAdminGroups    string `json:"sa_admin_groups"`
+	SAAdminEmails    string `json:"sa_admin_emails"`
+	SAKeyTTLs        string `json:"sa_key_ttls"`
 	OIDCIssuer       string `json:"oidc_issuer"`
 	OIDCClientID     string `json:"oidc_client_id"`
 	OIDCClientSecret string `json:"oidc_client_secret"`
@@ -174,6 +181,9 @@ func applyEnv(c *Config) {
 	setFromEnv("ARTIFACTA_ACCESS_TOKEN", &c.AccessToken)
 	setFromEnv("ARTIFACTA_REFRESH_TOKEN", &c.RefreshToken)
 	setFromEnv("ARTIFACTA_LOG_LEVEL", &c.LogLevel)
+	setFromEnv("ARTIFACTA_SA_ADMIN_GROUPS", &c.SAAdminGroups)
+	setFromEnv("ARTIFACTA_SA_ADMIN_EMAILS", &c.SAAdminEmails)
+	setFromEnv("ARTIFACTA_SA_KEY_TTLS", &c.SAKeyTTLs)
 	// The server's own single-token identity (Local auth). Lets a containerized
 	// local-auth deploy inject the token/identity via env instead of shipping a
 	// pre-written config.json, and makes the serve() empty-token guard actionable.
@@ -206,4 +216,16 @@ func Save(c Config) error {
 		return err
 	}
 	return os.WriteFile(Path(), b, 0o600)
+}
+
+// SplitList parses a comma-separated config value into its trimmed, non-empty
+// entries (nil for an empty value).
+func SplitList(v string) []string {
+	var out []string
+	for _, p := range strings.Split(v, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }

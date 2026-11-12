@@ -136,6 +136,13 @@ type Server struct {
 	// accepts the multipart POST /artifacts branch (ADR-0024). Default false keeps
 	// the surface dark; the raw-body CLI publish path is unaffected either way.
 	UploadUI bool
+	// SAAdminGroups / SAAdminEmails decide who may manage service accounts
+	// (ADR-0028): a member of any listed IdP group (the CLI token's groups claim)
+	// or a listed email. Both empty turns service-account management off (404).
+	// SAKeyTTLs lists the key lifetimes admins may mint (empty = DefaultSAKeyTTLs).
+	SAAdminGroups []string
+	SAAdminEmails []string
+	SAKeyTTLs     []string
 }
 
 // uploadAllowlist maps a lower-case file extension to the canonical Content-Type
@@ -251,6 +258,9 @@ func (s *Server) Routes() http.Handler {
 	// Audit (remote `artifacta audit verify`): the caller's OWN audit rows so they
 	// can verify per-row integrity client-side. Owner-scoped, fail-closed 401.
 	mux.Handle("GET /audit", rateLimit(http.HandlerFunc(s.auditEvents), contentPerMinute))
+	// Service-account admin (ADR-0028): one path, operation chosen by method +
+	// query params. 404 when unconfigured, 401 unauthenticated, 403 non-admin.
+	mux.Handle(ServiceAccountsPath, rateLimit(http.HandlerFunc(s.serviceAccounts), contentPerMinute))
 
 	// Sharing (FR12, FR13): owner-only mutations. Both fail closed — an
 	// unauthenticated caller gets 401 and a non-owner (or unknown slug) gets a

@@ -1,7 +1,7 @@
 # Spec: Service accounts (API-key identities for agents, bots and CI)
 
 **Issue**: N/A (maintainer-driven)
-**Status**: Approved
+**Status**: Implemented
 **Author**: Vivek Agarwal
 **Date**: 2026-11-02
 **Services Affected**: `artifacta-api` (server, CLI, both store adapters), `packages/schema`
@@ -197,7 +197,9 @@ None new.
 
 - **Logs**: SA lifecycle at info (name, actor, never the key); auth failures for `afa_`
   keys at warn with the prefix only.
-- **Metrics**: `artifacta_auth_total{method="sa_key|oidc|local",result}`.
+- **Metrics**: `artifacta_sa_key_auth_total{result}` with result `ok|unknown|revoked|expired|disabled|error`.
+  Only API-key attempts are counted: `Identify` runs several times per request on some paths, so
+  counting OIDC/local calls would overstate traffic.
 - **Alerts**: none in v1. The stale-key status in `sa key list` covers hygiene.
 
 ---

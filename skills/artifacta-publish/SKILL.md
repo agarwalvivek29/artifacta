@@ -29,6 +29,13 @@ stored session.
 If a publish fails with a "not logged in" error, stop and ask the user to run `artifacta login`
 themselves. Do not attempt to log in on their behalf.
 
+**Exception: CI jobs and bots.** On a runner with no human login, the environment may provide
+`ARTIFACTA_BASE_URL` and `ARTIFACTA_API_KEY` (a service-account key, `afa_…`). The CLI then
+publishes as that service account (`sa:<name>`), which owns the artifact; every command below
+works unchanged. Never print, log or commit the key, and never ask a user to paste one into the
+chat. If the key is missing or rejected (401), report it and stop; minting keys is an admin task
+(`artifacta sa key create`).
+
 ## How to publish
 
 1. Run the publish command with the path to the file:

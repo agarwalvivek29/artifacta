@@ -130,6 +130,7 @@ Regenerate schema types after editing proto: `cd packages/schema && ./scripts/ge
 | `artifacta share <slug> <grantee-sub>`          | Share with a subject (sets visibility to `INVITED`)    |
 | `artifacta edit <slug> [--title/--description]` | Edit an artifact's title and/or description            |
 | `artifacta ls`                                  | List your artifacts                                    |
+| `artifacta sa ...`                              | Manage service accounts and their API keys (admins)    |
 | `artifacta serve`                               | Run the viewer server                                  |
 | `artifacta audit verify`                        | Verify the audit-log hash chain (file or Postgres)     |
 | `artifacta upgrade`                             | Recommend the CLI version matching your deployment     |
@@ -138,6 +139,33 @@ Regenerate schema types after editing proto: `cd packages/schema && ./scripts/ge
 | `artifacta version`                             | Print the build version                                |
 
 Also available: `visibility`, `unshare`, `label`, `comment`, `healthcheck`, `search` — run `artifacta --help` for the full set.
+
+### Service accounts (bots and CI)
+
+A CI job or bot publishes as a **service account**, not as whoever last logged in on the runner
+([ADR-0028](docs/adr/0028-service-accounts-and-api-keys.md)). It is audited as `sa:<name>` and owns
+what it publishes, so it can make its own reports org-visible. Only admins manage accounts: members
+of `ARTIFACTA_SA_ADMIN_GROUPS` (matched against the `groups` claim of their CLI login) or
+`ARTIFACTA_SA_ADMIN_EMAILS`. With both unset the feature is off.
+
+```bash
+# Admin (once). Run `artifacta login` again first if the server says your login has no groups claim.
+artifacta sa create ci-reports --description "nightly reports"
+artifacta sa key create ci-reports --ttl 90d        # 30d | 90d | never; the key is shown once
+
+# The bot (store the key in its secret store)
+ARTIFACTA_BASE_URL=https://artifacta.example.com ARTIFACTA_API_KEY=afa_... \
+  artifacta publish report.html
+artifacta visibility <slug> org                    # same env
+
+# Rotate / offboard
+artifacta sa key list ci-reports                   # status: active | stale | expired | revoked
+artifacta sa key revoke ci-reports <key-id>        # immediate
+artifacta sa disable ci-reports                    # every key stops working; permanent
+```
+
+Keys are stored only as hashes. A disabled account's artifacts stay at their current visibility, but
+no one can edit them afterwards.
 
 ---
 
@@ -171,6 +199,7 @@ imported by the service — **never redefined in service code**.
 - **Authorize before bytes.** Bundle bytes are served **only** after an allow — no client-reachable pre-signed URLs.
 - **Fail closed.** Missing artifact or store error → deny (`404`), and existence is never leaked.
 - **Inbuilt audit.** Every allow and deny is recorded in a tamper-evident hash chain, in the app's own store.
+- **Non-human identities.** Bots use admin-minted, hashed, revocable service-account keys and never share a person's session ([ADR-0028](docs/adr/0028-service-accounts-and-api-keys.md)).
 - **Cookieless content origin.** Raw artifact bytes are served from a separate origin with no session cookie ([ADR-0008](docs/adr/0008-separate-content-origin.md)).
 - **VPN-fronted.** Deployed behind the corporate VPN as the network perimeter; app auth + RBAC + audit are retained as **defense-in-depth** and for compliance ([ADR-0011](docs/adr/0011-vpn-fronted-threat-model.md)).
 
@@ -221,6 +250,7 @@ The reasoning behind the architecture lives in [`docs/adr/`](docs/adr/). Highlig
 | [0017](docs/adr/0017-subdomain-artifact-addressing.md)                              | Subdomain artifact addressing (`{slug\|label}.{root}`)         |
 | [0018](docs/adr/0018-anonymous-vpn-gated-visibility.md)                             | Anonymous, VPN-gated `LINK` visibility (no-login sharing)      |
 | [0019](docs/adr/0019-invite-by-email-grants.md)                                     | Invite-by-email grants (subject or verified email)             |
+| [0028](docs/adr/0028-service-accounts-and-api-keys.md)                              | Service accounts with admin-minted API keys                    |
 
 ---
 

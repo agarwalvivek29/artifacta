@@ -69,6 +69,14 @@ version + CLI-compat contract, ADR-0021), `GET /.well-known/artifacta-cli`
 login <url>` self-configures from the discovery endpoint and holds an OIDC refresh token
 (`offline_access`) so sessions persist ([ADR-0020](docs/adr/0020-cli-public-client-and-refresh.md)).
 
+**Service accounts** ([ADR-0028](docs/adr/0028-service-accounts-and-api-keys.md)): `api.APIKeyAuth`
+wraps whichever provider is configured. A `Bearer afa_…` credential is looked up by sha256 in the
+store and resolves to the subject `sa:<name>`, with no fallthrough to OIDC on failure. Every other
+credential passes to the inner provider unchanged, and an inner identity carrying the reserved
+`sa:` prefix is rejected. Admin management lives on the single path `/serviceaccounts` and is
+gated by the CLI token's `groups` claim (`ARTIFACTA_SA_ADMIN_GROUPS`) or an email allow-list
+(`ARTIFACTA_SA_ADMIN_EMAILS`).
+
 ## Architectural Constraints
 
 - All domain types defined in `packages/schema/proto/` before service code (Rule 12).

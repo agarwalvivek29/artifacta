@@ -156,6 +156,14 @@ Accepted credentials (checked in this order):
 - `API_KEY` — minimum 16 characters
 - `JWT_EXPIRY_SECONDS` — default 3600
 
+**Service accounts (ADR-0028).** `api.APIKeyAuth` wraps the configured provider in `serve`.
+`Authorization: Bearer afa_…` is authenticated against the hashed key store and never falls through
+to OIDC; anything else goes to the inner provider unchanged. Service accounts have subject
+`sa:<name>`, which is a reserved prefix. Admin operations (`/serviceaccounts`) need
+`ARTIFACTA_SA_ADMIN_GROUPS` (matched to the bearer token's `groups` claim) or
+`ARTIFACTA_SA_ADMIN_EMAILS`; with both unset they return 404. Never log a raw key: use
+`domain.KeyPrefix`.
+
 **Agent rules:**
 
 - Never add an unprotected route without explicit human approval

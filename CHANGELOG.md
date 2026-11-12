@@ -2,6 +2,56 @@
 
 All notable changes to ArtifactA are documented here. Versions follow [SemVer](https://semver.org).
 
+## 0.2.0 — 2026-11-12
+
+### Added
+
+- **Service accounts and API keys** (ADR-0028, spec 12). A CI job, scheduled report or bot can now
+  publish as its own identity, `sa:<name>`, instead of riding a human's CLI login. The account owns
+  what it publishes, so it can make its own reports org-visible, add versions and share them.
+  - Admins manage them with `artifacta sa create|list|disable` and
+    `artifacta sa key create|list|revoke`. Keys look like `afa_…`, are shown once, expire after
+    `30d`, `90d` or `never` (`ARTIFACTA_SA_KEY_TTLS`), and are stored only as a sha256 hash plus a
+    short display prefix. Listings show each key's status (active, stale, expired, revoked) and when
+    it was last used.
+  - A bot needs no login: `ARTIFACTA_BASE_URL=… ARTIFACTA_API_KEY=afa_… artifacta publish report.html`.
+    A revoked, expired or unknown key, or a disabled account, is a 401 and is never retried as a
+    normal login. Disabling an account is permanent and its name is never reused.
+  - Admins are members of `ARTIFACTA_SA_ADMIN_GROUPS` (matched against the `groups` claim of their
+    CLI login) or listed in `ARTIFACTA_SA_ADMIN_EMAILS`. With both unset the feature is off and
+    `/serviceaccounts` returns 404. `artifacta login` now requests the `groups` scope when the
+    issuer advertises it; an admin whose login predates this is told to run `artifacta login` again.
+  - Every admin action is audited against `sa:<name>`, and denied attempts are audited too. A new
+    metric, `artifacta_sa_key_auth_total{result}`, counts key authentications by outcome.
+- **`artifacta publish --visibility <private|invited|org|link>`** creates an artifact at that
+  visibility in one step (`POST /artifacts?visibility=`), so it is never briefly private. Without the
+  flag artifacts are private, as before. An unknown level is rejected before anything is stored, and
+  creating a non-private artifact is audited as a share. Against an older server the CLI falls back
+  to a separate visibility change.
+
+### Changed
+
+- **`link` visibility is described as "anyone with the link"**: the share dialog, CLI help and docs
+  now say it is unlisted (never shown on other people's dashboards or in search) and needs no login
+  on the VPN, while `org` is listed on everyone's dashboard. Behavior is unchanged.
+- `/me` and `artifacta whoami` report whether the caller is a user or a service account.
+- New Postgres tables `service_accounts` and `api_keys` are created automatically at startup.
+- The service-account admin API is CLI-only: `/serviceaccounts` requires an
+  `Authorization: Bearer` header, so a browser session cookie is never enough.
+- The `groups` and `email_verified` claims are read leniently: a `groups` claim sent as a single
+  string is accepted rather than failing the login, and `email_verified=false` keeps an email off
+  the admin fallback list.
+
+### Upgrade notes
+
+- **Admins need CLI 0.2.0.** Run `artifacta upgrade`, then `artifacta login` again so your login
+  carries the `groups` claim. An older CLI can't parse the new service-account audit events, so
+  `artifacta audit verify` needs 0.2.0.
+- **Don't roll the server back below 0.2.0** once a service account has been created: older
+  builds can't hash the new audit actions, and the audit chain will fail verification.
+- Unsetting both `ARTIFACTA_SA_ADMIN_*` lists hides account management but does not revoke keys.
+  Disable the accounts first if you want every bot cut off.
+
 ## 0.1.1 — 2026-09-22
 
 ### Fixed

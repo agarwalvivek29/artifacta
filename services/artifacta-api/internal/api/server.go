@@ -563,6 +563,19 @@ func (s *Server) publish(w http.ResponseWriter, r *http.Request) {
 		title = "untitled"
 	}
 	description := r.URL.Query().Get("description") // optional publisher metadata (ADR-0025)
+	// Optional initial visibility, so a publisher (notably a service account)
+	// can create an org/link artifact in one request instead of publish-then-
+	// PATCH. Absent means private, exactly as before. Validated before the body
+	// is read so a typo never creates a private artifact the caller didn't want.
+	vis := artifactav1.Visibility_VISIBILITY_PRIVATE
+	if v := r.URL.Query().Get("visibility"); v != "" {
+		parsed, ok := parseVisibility(v)
+		if !ok {
+			http.Error(w, `unknown visibility (want private, invited, org, or link; "public" is an alias for link)`, http.StatusBadRequest)
+			return
+		}
+		vis = parsed
+	}
 	ct := r.Header.Get("Content-Type")
 	if ct == "" {
 		ct = "text/html; charset=utf-8"
@@ -591,7 +604,7 @@ func (s *Server) publish(w http.ResponseWriter, r *http.Request) {
 	// ES modules bundled, under the egress posture. Never blocks a publish.
 	bundled, bundledCT, _, _ := render.Prepare(body, ct, render.Options{Egress: s.Egress})
 
-	if err := s.storeArtifact(who, slug, title, description, bundledCT, bundled, false); err != nil {
+	if err := s.storeArtifact(who, slug, title, description, bundledCT, bundled, vis, false); err != nil {
 		http.Error(w, "unavailable", http.StatusInternalServerError)
 		return
 	}
@@ -601,6 +614,9 @@ func (s *Server) publish(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]string{
 		"slug": slug,
 		"url":  s.BaseURL + "/a/" + slug,
+		// Echoed so a client can tell this server honored ?visibility= (an
+		// older server ignores the param and omits this field).
+		"visibility": visibilityLabel(vis),
 	})
 }
 
@@ -663,7 +679,7 @@ func (s *Server) publishUpload(w http.ResponseWriter, r *http.Request, who *arti
 	// HTML runs the render-parity pipeline (fail-soft); non-HTML is stored as-is.
 	bundled, storedCT, _, _ := render.Prepare(body, ct, render.Options{Egress: s.Egress})
 
-	if err := s.storeArtifact(who, slug, title, description, storedCT, bundled, true); err != nil {
+	if err := s.storeArtifact(who, slug, title, description, storedCT, bundled, artifactav1.Visibility_VISIBILITY_PRIVATE, true); err != nil {
 		http.Error(w, "unavailable", http.StatusInternalServerError)
 		return
 	}
@@ -671,11 +687,12 @@ func (s *Server) publishUpload(w http.ResponseWriter, r *http.Request, who *arti
 	http.Redirect(w, r, "/a/"+slug, http.StatusSeeOther)
 }
 
-// storeArtifact persists a rendered artifact as a private v1 owned by who, then
-// audits PUBLISH. Shared by the CLI raw path and the browser upload path so both
+// storeArtifact persists a rendered artifact as a v1 owned by who with the given
+// initial visibility (private unless the publisher asked otherwise), then
+// audits PUBLISH, plus SHARE when it was created non-private. Shared by the CLI raw path and the browser upload path so both
 // converge on one storage + audit code path. On any store error it audits DENY
 // and returns the error for the caller to surface as a 500.
-func (s *Server) storeArtifact(who *artifactav1.Identity, slug, title, description, ct string, bundled []byte, viaUpload bool) error {
+func (s *Server) storeArtifact(who *artifactav1.Identity, slug, title, description, ct string, bundled []byte, vis artifactav1.Visibility, viaUpload bool) error {
 	const firstVersion = 1
 	if err := s.Blob.Put(slug, firstVersion, bytes.NewReader(bundled)); err != nil {
 		s.audit(who, slug, artifactav1.AuditAction_AUDIT_ACTION_DENY, false)
@@ -687,8 +704,8 @@ func (s *Server) storeArtifact(who *artifactav1.Identity, slug, title, descripti
 		OwnerSub:      who.GetSub(),
 		OwnerEmail:    who.GetEmail(), // denormalized for search (ADR-0025); server-derived, never client-asserted
 		Title:         title,
-		Description:   description,                               // optional publisher metadata, searchable (ADR-0025)
-		Visibility:    artifactav1.Visibility_VISIBILITY_PRIVATE, // private by default
+		Description:   description, // optional publisher metadata, searchable (ADR-0025)
+		Visibility:    vis,         // private unless the publisher asked otherwise
 		ContentType:   ct,
 		CreatedAt:     now,
 		LatestVersion: firstVersion,
@@ -705,6 +722,10 @@ func (s *Server) storeArtifact(who *artifactav1.Identity, slug, title, descripti
 		return err
 	}
 	s.audit(who, slug, artifactav1.AuditAction_AUDIT_ACTION_PUBLISH, true)
+	if vis != artifactav1.Visibility_VISIBILITY_PRIVATE {
+		// Same trail as a later PATCH …/visibility: exposure is always audited.
+		s.audit(who, slug, artifactav1.AuditAction_AUDIT_ACTION_SHARE, true)
+	}
 	return nil
 }
 

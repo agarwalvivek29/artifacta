@@ -158,3 +158,68 @@ func TestPublishOverLimitBodyRejected(t *testing.T) {
 		t.Fatalf("metadata stored despite over-limit body: arts=%d err=%v", len(arts), err)
 	}
 }
+
+// publishWithVisibility posts a page with ?visibility=<vis> and returns the response.
+func publishWithVisibility(t *testing.T, h http.Handler, vis string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/artifacts?title=Report&visibility="+vis, strings.NewReader("<h1>r</h1>"))
+	req.Header.Set("Content-Type", "text/html")
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	return rr
+}
+
+func TestPublishWithInitialVisibility(t *testing.T) {
+	cases := []struct {
+		param string
+		want  artifactav1.Visibility
+		label string
+	}{
+		{"org", artifactav1.Visibility_VISIBILITY_ORG, "org"},
+		{"link", artifactav1.Visibility_VISIBILITY_LINK, "link"},
+		{"public", artifactav1.Visibility_VISIBILITY_LINK, "link"}, // alias
+		{"invited", artifactav1.Visibility_VISIBILITY_INVITED, "invited"},
+		{"private", artifactav1.Visibility_VISIBILITY_PRIVATE, "private"},
+		{"", artifactav1.Visibility_VISIBILITY_PRIVATE, "private"}, // default unchanged
+	}
+	for _, tc := range cases {
+		t.Run("vis="+tc.param, func(t *testing.T) {
+			srv := newTestServer(t, t.TempDir(), fakeAuth{id: &artifactav1.Identity{Sub: "sa:ci"}, ok: true})
+			rr := publishWithVisibility(t, srv.Routes(), tc.param)
+			if rr.Code != http.StatusCreated {
+				t.Fatalf("publish: %d %s", rr.Code, rr.Body.String())
+			}
+			var resp struct{ Slug, Visibility string }
+			_ = json.Unmarshal(rr.Body.Bytes(), &resp)
+			if resp.Visibility != tc.label {
+				t.Fatalf("echoed visibility = %q, want %q", resp.Visibility, tc.label)
+			}
+			art, _, _ := srv.Store.GetArtifact(resp.Slug)
+			if art.GetVisibility() != tc.want {
+				t.Fatalf("stored visibility = %v, want %v", art.GetVisibility(), tc.want)
+			}
+			// Creating it exposed is audited as a SHARE, like a later PATCH would be.
+			evs, _ := srv.Store.AuditEvents()
+			shared := false
+			for _, ev := range evs {
+				if ev.GetSlug() == resp.Slug && ev.GetAction() == artifactav1.AuditAction_AUDIT_ACTION_SHARE {
+					shared = true
+				}
+			}
+			if wantShare := tc.want != artifactav1.Visibility_VISIBILITY_PRIVATE; shared != wantShare {
+				t.Fatalf("SHARE audited = %v, want %v", shared, wantShare)
+			}
+		})
+	}
+}
+
+func TestPublishRejectsUnknownVisibilityAndStoresNothing(t *testing.T) {
+	srv := newTestServer(t, t.TempDir(), fakeAuth{id: &artifactav1.Identity{Sub: "local:tester"}, ok: true})
+	rr := publishWithVisibility(t, srv.Routes(), "everyone")
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("publish: got %d, want 400", rr.Code)
+	}
+	if arts, _ := srv.Store.ListByOwner("local:tester"); len(arts) != 0 {
+		t.Fatalf("a rejected publish stored %d artifacts", len(arts))
+	}
+}

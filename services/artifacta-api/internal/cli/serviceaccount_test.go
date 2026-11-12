@@ -134,12 +134,15 @@ func TestServiceAccountCommandsEndToEnd(t *testing.T) {
 	}
 	page := filepath.Join(t.TempDir(), "report.html")
 	_ = os.WriteFile(page, []byte("<h1>nightly</h1>"), 0o600)
-	if _, err := run(t, func() error { return Run([]string{"publish", page}) }); err != nil {
+	if _, err := run(t, func() error { return Run([]string{"publish", "--visibility", "org", page}) }); err != nil {
 		t.Fatalf("publish as bot: %v", err)
 	}
 	arts, _ := st.ListByOwner("sa:ci")
 	if len(arts) != 1 {
 		t.Fatalf("bot owns %d artifacts, want 1", len(arts))
+	}
+	if arts[0].GetVisibility() != artifactav1.Visibility_VISIBILITY_ORG {
+		t.Fatalf("bot's artifact visibility = %v, want ORG in one publish", arts[0].GetVisibility())
 	}
 
 	// The admin revokes the key; the bot is cut off.

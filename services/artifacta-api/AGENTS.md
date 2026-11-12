@@ -164,6 +164,13 @@ to OIDC; anything else goes to the inner provider unchanged. Service accounts ha
 `ARTIFACTA_SA_ADMIN_EMAILS`; with both unset they return 404. Never log a raw key: use
 `domain.KeyPrefix`.
 
+**Initial visibility at publish.** `POST /artifacts?visibility=private|invited|org|link` (`public`
+aliases `link`) creates the artifact at that level in one request. It is validated before the body
+is read (unknown level → 400, nothing stored), echoed as `visibility` in the 201 body, and a
+non-private creation is audited as `SHARE` as well as `PUBLISH`. Absent means private, as before.
+`artifacta publish --visibility <level>` sends it and, if an older server doesn't echo the field,
+falls back to `PATCH …/visibility`. The browser upload form stays private-only.
+
 **Agent rules:**
 
 - Never add an unprotected route without explicit human approval

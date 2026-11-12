@@ -48,7 +48,8 @@ Usage:
   artifacta doctor            check server connectivity + authentication
   artifacta whoami            print the authenticated identity
   artifacta upgrade           check for a newer CLI (and server compatibility)
-  artifacta publish <file>    publish a new artifact, print its link
+  artifacta publish [--visibility <private|invited|org|link>] <file>
+                            publish a new artifact (private unless --visibility), print its link
   artifacta publish --update <slug> <file>
                             append a new version to an existing artifact
   artifacta versions <slug>   list an artifact's versions
@@ -459,8 +460,20 @@ func contentTypeForPath(path string) string {
 func publish(args []string) error {
 	// Parse an optional `--update <slug>` flag; it may appear before or after the
 	// file path. Everything else is treated as the positional <file> argument.
-	var updateSlug, path, description string
+	var updateSlug, path, description, vis string
 	for i := 0; i < len(args); i++ {
+		if args[i] == "--visibility" || args[i] == "--vis" {
+			if i+1 >= len(args) {
+				return fmt.Errorf("usage: artifacta publish --visibility <private|invited|org|link> <file>")
+			}
+			v, err := normalizeVisibility(args[i+1])
+			if err != nil {
+				return err
+			}
+			vis = v
+			i++
+			continue
+		}
 		if args[i] == "--update" {
 			if i+1 >= len(args) {
 				return fmt.Errorf("usage: artifacta publish --update <slug> <file>")
@@ -482,7 +495,12 @@ func publish(args []string) error {
 		}
 	}
 	if path == "" {
-		return fmt.Errorf("usage: artifacta publish [--update <slug>] [--description <text>] <file>")
+		return fmt.Errorf("usage: artifacta publish [--update <slug>] [--description <text>] [--visibility <level>] <file>")
+	}
+	if updateSlug != "" && vis != "" {
+		// A new version inherits the artifact's visibility; changing it is a
+		// separate, explicit owner action.
+		return fmt.Errorf("--visibility applies to a new artifact; to change an existing one run: artifacta visibility %s %s", updateSlug, vis)
 	}
 	c, err := config.Load()
 	if err != nil {
@@ -516,7 +534,7 @@ func publish(args []string) error {
 		if err != nil {
 			return err
 		}
-		link, err := publishRemote(c.BaseURL, token, path, description)
+		link, err := publishRemote(c.BaseURL, token, path, description, vis)
 		if err != nil {
 			return err
 		}
@@ -546,7 +564,7 @@ func publish(args []string) error {
 		OwnerEmail:    c.Email,
 		Title:         filepath.Base(path),
 		Description:   description,
-		Visibility:    artifactav1.Visibility_VISIBILITY_PRIVATE, // private by default
+		Visibility:    visibilityProto(vis), // private unless --visibility
 		ContentType:   contentTypeForPath(path),
 		CreatedAt:     now,
 		LatestVersion: firstVersion,
@@ -576,8 +594,12 @@ func publish(args []string) error {
 
 // publishRemote POSTs the file at path to <baseURL>/artifacts?title=<basename>
 // with `Authorization: Bearer <token>` and returns the `url` from the JSON
-// response. It is unit-testable against an httptest.Server.
-func publishRemote(baseURL, token, path, description string) (string, error) {
+// response. A non-empty vis (already normalized) is sent as ?visibility= so the
+// artifact is created at that level in one request. An older server ignores
+// the param and doesn't echo `visibility`; then we fall back to PATCHing it, so
+// the caller always ends up with the visibility they asked for. It is
+// unit-testable against an httptest.Server.
+func publishRemote(baseURL, token, path, description, vis string) (string, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return "", err
@@ -588,15 +610,51 @@ func publishRemote(baseURL, token, path, description string) (string, error) {
 	if description != "" {
 		q += "&description=" + url.QueryEscape(description)
 	}
+	if vis != "" {
+		q += "&visibility=" + url.QueryEscape(vis)
+	}
 	endpoint := remoteURL(baseURL, q)
 	var out struct {
-		Slug string `json:"slug"`
-		URL  string `json:"url"`
+		Slug       string `json:"slug"`
+		URL        string `json:"url"`
+		Visibility string `json:"visibility"`
 	}
 	if err := doRemote(http.MethodPost, endpoint, token, contentTypeForPath(path), f, http.StatusCreated, &out); err != nil {
 		return "", fmt.Errorf("publish failed: %w", err)
 	}
+	if vis != "" && out.Visibility != vis {
+		if err := setVisibilityRemote(baseURL, token, out.Slug, vis); err != nil {
+			return "", fmt.Errorf("published %s but could not set visibility to %s: %w", out.URL, vis, err)
+		}
+	}
 	return out.URL, nil
+}
+
+// normalizeVisibility validates a user-supplied visibility level and returns
+// its canonical name ("public" is an alias for "link").
+func normalizeVisibility(level string) (string, error) {
+	switch level {
+	case "private", "invited", "org", "link":
+		return level, nil
+	case "public":
+		return "link", nil
+	default:
+		return "", fmt.Errorf("invalid visibility %q (want private, invited, org, or link; \"public\" is an alias for link)", level)
+	}
+}
+
+// visibilityProto maps a normalized level to the proto enum; "" is private.
+func visibilityProto(level string) artifactav1.Visibility {
+	switch level {
+	case "invited":
+		return artifactav1.Visibility_VISIBILITY_INVITED
+	case "org":
+		return artifactav1.Visibility_VISIBILITY_ORG
+	case "link":
+		return artifactav1.Visibility_VISIBILITY_LINK
+	default:
+		return artifactav1.Visibility_VISIBILITY_PRIVATE
+	}
 }
 
 // addVersionRemote POSTs the file at path to <baseURL>/artifacts/<slug>/versions
@@ -722,15 +780,12 @@ func visibility(args []string) error {
 	if len(args) < 2 {
 		return fmt.Errorf("usage: artifacta visibility <slug> <private|invited|org|link>")
 	}
-	slug, level := args[0], args[1]
-	switch level {
-	case "private", "invited", "org", "link":
-	case "public":
-		// "public" is an accepted alias for the no-login, VPN-gated "link" level.
-		// Normalize to the canonical name so output and the server agree.
-		level = "link"
-	default:
-		return fmt.Errorf("invalid visibility %q (want private, invited, org, or link; \"public\" is an alias for link)", level)
+	slug := args[0]
+	// "public" is an accepted alias for the no-login, VPN-gated "link" level;
+	// normalize so output and the server agree.
+	level, err := normalizeVisibility(args[1])
+	if err != nil {
+		return err
 	}
 	c, err := config.Load()
 	if err != nil {

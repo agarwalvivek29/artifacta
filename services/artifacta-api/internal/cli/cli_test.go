@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -37,7 +38,7 @@ func TestPublishRemoteSendsBearerAndReturnsURL(t *testing.T) {
 		t.Fatalf("write temp file: %v", err)
 	}
 
-	gotURL, err := publishRemote(srv.URL, token, path, "a page for testing")
+	gotURL, err := publishRemote(srv.URL, token, path, "a page for testing", "")
 	if err != nil {
 		t.Fatalf("publishRemote: %v", err)
 	}
@@ -74,7 +75,7 @@ func TestPublishRemoteErrorsOnNon201(t *testing.T) {
 		t.Fatalf("write temp file: %v", err)
 	}
 
-	if _, err := publishRemote(srv.URL, "tok", path, ""); err == nil {
+	if _, err := publishRemote(srv.URL, "tok", path, "", ""); err == nil {
 		t.Fatalf("publishRemote: expected error on 401, got nil")
 	}
 }
@@ -599,10 +600,63 @@ func TestPublishRemoteSendsDerivedContentType(t *testing.T) {
 	if err := os.WriteFile(path, []byte("<svg/>"), 0o600); err != nil {
 		t.Fatalf("write temp file: %v", err)
 	}
-	if _, err := publishRemote(srv.URL, "tok", path, ""); err != nil {
+	if _, err := publishRemote(srv.URL, "tok", path, "", ""); err != nil {
 		t.Fatalf("publishRemote: %v", err)
 	}
 	if gotCT != "image/svg+xml" {
 		t.Fatalf("Content-Type = %q, want image/svg+xml", gotCT)
+	}
+}
+
+// TestPublishRemoteVisibility: the level rides on the publish request; only an
+// older server that doesn't echo it gets the PATCH fallback.
+func TestPublishRemoteVisibility(t *testing.T) {
+	for _, echoes := range []bool{true, false} {
+		var gotVis string
+		patched := ""
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodPatch {
+				var body map[string]string
+				_ = json.NewDecoder(r.Body).Decode(&body)
+				patched = r.URL.Path + "=" + body["visibility"]
+				return
+			}
+			gotVis = r.URL.Query().Get("visibility")
+			resp := map[string]string{"slug": "abc123", "url": "http://x/a/abc123"}
+			if echoes {
+				resp["visibility"] = gotVis
+			}
+			w.WriteHeader(http.StatusCreated)
+			_ = json.NewEncoder(w).Encode(resp)
+		}))
+		path := filepath.Join(t.TempDir(), "r.html")
+		_ = os.WriteFile(path, []byte("x"), 0o600)
+		if _, err := publishRemote(srv.URL, "tok", path, "", "org"); err != nil {
+			t.Fatalf("echoes=%v: %v", echoes, err)
+		}
+		srv.Close()
+		if gotVis != "org" {
+			t.Fatalf("echoes=%v: ?visibility = %q, want org", echoes, gotVis)
+		}
+		wantPatch := ""
+		if !echoes {
+			wantPatch = "/artifacts/abc123/visibility=org"
+		}
+		if patched != wantPatch {
+			t.Fatalf("echoes=%v: PATCH = %q, want %q", echoes, patched, wantPatch)
+		}
+	}
+}
+
+func TestPublishVisibilityFlagValidation(t *testing.T) {
+	t.Setenv("ARTIFACTA_HOME", t.TempDir())
+	if err := publish([]string{"--visibility", "everyone", "x.html"}); err == nil || !strings.Contains(err.Error(), "invalid visibility") {
+		t.Fatalf("bad level: err = %v", err)
+	}
+	if err := publish([]string{"--update", "abc", "--visibility", "org", "x.html"}); err == nil || !strings.Contains(err.Error(), "artifacta visibility abc org") {
+		t.Fatalf("--update with --visibility: err = %v", err)
+	}
+	if err := publish([]string{"x.html", "--visibility"}); err == nil || !strings.Contains(err.Error(), "usage") {
+		t.Fatalf("missing value: err = %v", err)
 	}
 }

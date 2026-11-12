@@ -128,8 +128,9 @@ func KeyStatus(k *artifactav1.ApiKey, now time.Time) string {
 }
 
 // IsAdmin decides whether who may manage service accounts: a member of any of
-// adminGroups (the token's groups claim) or one of adminEmails. A service
-// account is never an admin, and empty lists admit no one.
+// adminGroups (the token's groups claim) or one of adminEmails (unless the
+// token said email_verified=false). A service account is never an admin, and
+// empty lists admit no one.
 func IsAdmin(who *artifactav1.Identity, adminGroups, adminEmails []string) bool {
 	if who == nil || who.GetSub() == "" || IsServiceAccount(who.GetSub()) {
 		return false
@@ -141,7 +142,8 @@ func IsAdmin(who *artifactav1.Identity, adminGroups, adminEmails []string) bool 
 			}
 		}
 	}
-	if email := strings.ToLower(strings.TrimSpace(who.GetEmail())); email != "" {
+	// An email the IdP explicitly marked unverified never grants admin.
+	if email := strings.ToLower(strings.TrimSpace(who.GetEmail())); email != "" && !who.GetEmailUnverified() {
 		for _, a := range adminEmails {
 			if strings.ToLower(strings.TrimSpace(a)) == email {
 				return true

@@ -43,6 +43,14 @@ func (s *Server) serviceAccounts(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	// CLI-only (ADR-0028): a browser session cookie is never enough. Requiring
+	// an Authorization header also means a cross-site page can't drive these
+	// endpoints with an admin's cookie, since it can't set that header without
+	// a CORS preflight this server never approves.
+	if bearer(r) == "" {
+		http.Error(w, "unauthorized: service-account admin needs a CLI login (artifacta login)", http.StatusUnauthorized)
+		return
+	}
 	who, ok := s.Auth.Identify(r)
 	if !ok {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)

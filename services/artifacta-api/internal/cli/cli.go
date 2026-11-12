@@ -1240,8 +1240,11 @@ func fetchAuditEvents(baseURL, token string) ([]*artifactav1.AuditEvent, error) 
 	events := make([]*artifactav1.AuditEvent, 0, len(raw))
 	for _, r := range raw {
 		ev := &artifactav1.AuditEvent{}
+		// Strict on purpose: each event is re-hashed to verify the chain, so
+		// silently dropping an unknown field or action would surface as a false
+		// "tampered" report. A newer server is the likely cause; say so.
 		if err := protojson.Unmarshal(r, ev); err != nil {
-			return nil, fmt.Errorf("decode audit event: %w", err)
+			return nil, fmt.Errorf("decode audit event (the server may be newer than this CLI — run: artifacta upgrade): %w", err)
 		}
 		events = append(events, ev)
 	}
@@ -1324,7 +1327,7 @@ func whoami() error {
 	if err != nil {
 		return err
 	}
-	if strings.HasPrefix(sub, "sa:") {
+	if domain.IsServiceAccount(sub) {
 		fmt.Printf("%s (service account, via ARTIFACTA_API_KEY)  @ %s\n", sub, c.BaseURL)
 		return nil
 	}

@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -404,6 +406,23 @@ func runServiceAccountConformance(t *testing.T, st api.Store) {
 	all, err := st.ListServiceAccounts()
 	if err != nil || !containsSA(all, name) {
 		t.Fatalf("ListServiceAccounts missing %s (err %v)", name, err)
+	}
+	// Byte order on both backends, independent of the database collation
+	// (which can ignore '-' and put "ci-b" after "cia").
+	for _, n := range []string{k + "-b", k + "a", k + "-a"} {
+		if err := st.CreateServiceAccount(&artifactav1.ServiceAccount{Id: domain.NewSlug(), Name: n, CreatedAt: timestamppb.New(now)}); err != nil {
+			t.Fatalf("CreateServiceAccount(%s): %v", n, err)
+		}
+	}
+	all, _ = st.ListServiceAccounts()
+	var mine []string
+	for _, x := range all {
+		if strings.HasPrefix(x.GetName(), k) {
+			mine = append(mine, x.GetName())
+		}
+	}
+	if !sort.StringsAreSorted(mine) {
+		t.Fatalf("ListServiceAccounts order = %v, want byte order", mine)
 	}
 
 	// Keys: put, lookup by hash, list newest-first, touch, revoke (scoped).

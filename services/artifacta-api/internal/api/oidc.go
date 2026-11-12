@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"crypto/rand"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -139,18 +140,51 @@ func (p *OIDCProvider) identifyBearer(ctx context.Context, raw string) (*artifac
 	}
 	var claims struct {
 		Email string `json:"email"`
-		// Groups is a pointer so an absent claim (a login from before the CLI
-		// requested the groups scope) is distinct from an empty one (ADR-0028).
-		Groups *[]string `json:"groups"`
+		// groups and email_verified are decoded leniently (ADR-0028): their shape
+		// varies by IdP, and a surprising shape must never fail the whole login.
+		Groups        json.RawMessage `json:"groups"`
+		EmailVerified json.RawMessage `json:"email_verified"`
 	}
 	if err := idToken.Claims(&claims); err != nil {
 		return nil, false
 	}
 	id := &artifactav1.Identity{Sub: idToken.Subject, Email: claims.Email}
-	if claims.Groups != nil {
-		id.Groups, id.GroupsClaimPresent = *claims.Groups, true
-	}
+	id.Groups, id.GroupsClaimPresent = parseGroupsClaim(claims.Groups)
+	id.EmailUnverified = claimIsFalse(claims.EmailVerified)
 	return id, true
+}
+
+// parseGroupsClaim reads a `groups` claim sent as an array of strings or, as
+// some IdPs do for a single group, a plain string. present is false when the
+// claim is absent (a login from before the CLI requested the groups scope) or
+// unparseable, so the caller is never treated as a member of anything it can't
+// prove.
+func parseGroupsClaim(raw json.RawMessage) (groups []string, present bool) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil, false
+	}
+	if err := json.Unmarshal(raw, &groups); err == nil {
+		return groups, true
+	}
+	var one string
+	if err := json.Unmarshal(raw, &one); err == nil {
+		return []string{one}, true
+	}
+	return nil, false
+}
+
+// claimIsFalse reports whether a boolean claim is explicitly false (as a JSON
+// bool or the string "false"). Absent or anything else is not false.
+func claimIsFalse(raw json.RawMessage) bool {
+	var b bool
+	if err := json.Unmarshal(raw, &b); err == nil {
+		return !b
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		return strings.EqualFold(strings.TrimSpace(s), "false")
+	}
+	return false
 }
 
 // Login begins the Authorization-Code + PKCE flow: it generates a state nonce

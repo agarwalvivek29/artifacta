@@ -71,7 +71,7 @@ func (s *SQLStore) ServiceAccountByID(id string) (*artifactav1.ServiceAccount, b
 
 func (s *SQLStore) ListServiceAccounts() ([]*artifactav1.ServiceAccount, error) {
 	var rows []serviceAccountRow
-	if err := s.db.Order("name").Find(&rows).Error; err != nil {
+	if err := s.db.Order(`name COLLATE "C"`).Find(&rows).Error; err != nil {
 		return nil, err
 	}
 	out := make([]*artifactav1.ServiceAccount, 0, len(rows))

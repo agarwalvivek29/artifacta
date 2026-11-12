@@ -147,7 +147,8 @@ A CI job or bot publishes as a **service account**, not as whoever last logged i
 ([ADR-0028](docs/adr/0028-service-accounts-and-api-keys.md)). It is audited as `sa:<name>` and owns
 what it publishes, so it can make its own reports org-visible. Only admins manage accounts: members
 of `ARTIFACTA_SA_ADMIN_GROUPS` (matched against the `groups` claim of their CLI login) or
-`ARTIFACTA_SA_ADMIN_EMAILS`. With both unset the feature is off.
+`ARTIFACTA_SA_ADMIN_EMAILS`. With both unset, account management is off (existing keys keep
+working, so disable accounts first if you want bots cut off).
 
 ```bash
 # Admin (once). Run `artifacta login` again first if the server says your login has no groups claim.

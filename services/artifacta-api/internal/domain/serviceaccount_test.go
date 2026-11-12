@@ -116,6 +116,8 @@ func TestIsAdmin(t *testing.T) {
 		{"empty admin entries match nothing", id("u5", "", ""), []string{""}, []string{""}, false},
 		{"nil identity", nil, groups, emails, false},
 		{"empty sub", id("", "admin@example.com"), groups, emails, false},
+		{"allow-listed email marked unverified", &artifactav1.Identity{Sub: "u6", Email: "admin@example.com", EmailUnverified: true}, groups, emails, false},
+		{"unverified email still admin via group", &artifactav1.Identity{Sub: "u7", Email: "admin@example.com", EmailUnverified: true, Groups: []string{"DevOps-Engineering-L1"}, GroupsClaimPresent: true}, groups, emails, true},
 	}
 	for _, c := range cases {
 		if got := IsAdmin(c.who, c.groups, c.emails); got != c.want {

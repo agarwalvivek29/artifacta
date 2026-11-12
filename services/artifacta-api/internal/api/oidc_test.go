@@ -32,6 +32,9 @@ type mockIDP struct {
 	tokenErr string
 	// groups, when non-nil, is emitted as the id_token's `groups` claim.
 	groups []string
+	// extra claims merged into the id_token (overriding the above), so tests
+	// can send unusual shapes such as a string `groups`.
+	extra map[string]any
 }
 
 func newMockIDP(t *testing.T, clientID, sub, email string) *mockIDP {
@@ -103,6 +106,9 @@ func (m *mockIDP) signIDToken(t *testing.T, exp time.Time) string {
 	}
 	if m.groups != nil {
 		claims["groups"] = m.groups
+	}
+	for k, v := range m.extra {
+		claims[k] = v
 	}
 	payload := enc.EncodeToString(mustJSON(t, claims))
 	signingInput := header + "." + payload
@@ -401,6 +407,43 @@ func TestOIDCBearerCarriesGroupsClaim(t *testing.T) {
 			}
 			if who.GetGroupsClaimPresent() != c.wantPresent || strings.Join(who.GetGroups(), ",") != strings.Join(c.wantGroups, ",") {
 				t.Fatalf("groups = %v (present %v), want %v (present %v)", who.GetGroups(), who.GetGroupsClaimPresent(), c.wantGroups, c.wantPresent)
+			}
+		})
+	}
+}
+
+// Claim shapes vary by IdP. An odd `groups` or `email_verified` must never fail
+// the whole login (ADR-0028), and email_verified=false is surfaced.
+func TestOIDCBearerLenientClaims(t *testing.T) {
+	cases := []struct {
+		name           string
+		extra          map[string]any
+		wantPresent    bool
+		wantGroups     string
+		wantUnverified bool
+	}{
+		{"groups as a single string", map[string]any{"groups": "DevOps-Engineering-L1"}, true, "DevOps-Engineering-L1", false},
+		{"groups of an unexpected type", map[string]any{"groups": 42}, false, "", false},
+		{"email_verified false", map[string]any{"email_verified": false}, false, "", true},
+		{"email_verified string false", map[string]any{"email_verified": "false"}, false, "", true},
+		{"email_verified true", map[string]any{"email_verified": true}, false, "", false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			idp := newMockIDP(t, "test-client", "u1", "u1@example.com")
+			idp.extra = c.extra
+			p := newTestProvider(t, idp)
+			req := httptest.NewRequest(http.MethodGet, "/me", nil)
+			req.Header.Set("Authorization", "Bearer "+idp.signIDToken(t, time.Now().Add(time.Hour)))
+			who, ok := p.Identify(req)
+			if !ok {
+				t.Fatal("Identify rejected a valid bearer because of a claim shape")
+			}
+			if who.GetGroupsClaimPresent() != c.wantPresent || strings.Join(who.GetGroups(), ",") != c.wantGroups {
+				t.Fatalf("groups = %v (present %v), want %q (present %v)", who.GetGroups(), who.GetGroupsClaimPresent(), c.wantGroups, c.wantPresent)
+			}
+			if who.GetEmailUnverified() != c.wantUnverified {
+				t.Fatalf("email_unverified = %v, want %v", who.GetEmailUnverified(), c.wantUnverified)
 			}
 		})
 	}

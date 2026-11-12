@@ -87,6 +87,9 @@ func (h *harness) do(t *testing.T, method, path, sub, contentType, body string) 
 	if sub != "" {
 		req.Header.Set("X-Test-Sub", sub)
 		req.Header.Set("X-Test-Email", sub+"@corp.example")
+		// A real CLI always sends its login as a bearer; the service-account
+		// admin API requires one (ADR-0028). The header auth ignores its value.
+		req.Header.Set("Authorization", "Bearer e2e-"+sub)
 	}
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)

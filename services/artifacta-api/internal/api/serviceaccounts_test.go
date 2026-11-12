@@ -52,12 +52,51 @@ func (h *saHarness) do(as *artifactav1.Identity, key, method, target, body strin
 	h.t.Helper()
 	h.inner.id = as
 	req := httptest.NewRequest(method, target, strings.NewReader(body))
-	if key != "" {
+	switch {
+	case key != "":
 		req.Header.Set("Authorization", "Bearer "+key)
+	case as != nil:
+		// The CLI sends its login as a bearer; switchAuth ignores the value.
+		req.Header.Set("Authorization", "Bearer cli-id-token")
 	}
 	rr := httptest.NewRecorder()
 	h.h.ServeHTTP(rr, req)
 	return rr
+}
+
+// The admin API is CLI-only: an admin authenticated by a browser session
+// cookie alone (no Authorization header) is refused, which also keeps a
+// cross-site page from driving it with that cookie.
+func TestServiceAccountsRequireBearer(t *testing.T) {
+	h := newSAHarness(t)
+	h.inner.id = opsAdmin
+	req := httptest.NewRequest(http.MethodPost, "/serviceaccounts", strings.NewReader(`{"name":"via-cookie"}`))
+	req.AddCookie(&http.Cookie{Name: "hn_session", Value: "browser-session"})
+	rr := httptest.NewRecorder()
+	h.h.ServeHTTP(rr, req)
+	h.mustStatus(rr, http.StatusUnauthorized)
+	if _, ok, _ := h.srv.Store.ServiceAccountByName("via-cookie"); ok {
+		t.Fatal("a cookie-only request created a service account")
+	}
+}
+
+// A key can only be revoked through the account that owns it.
+func TestServiceAccountsRevokeScopedToAccount(t *testing.T) {
+	h := newSAHarness(t)
+	for _, n := range []string{"a1", "a2"} {
+		h.mustStatus(h.do(opsAdmin, "", http.MethodPost, "/serviceaccounts", `{"name":"`+n+`"}`), http.StatusCreated)
+	}
+	rr := h.do(opsAdmin, "", http.MethodPost, "/serviceaccounts?name=a1", `{"ttl":"30d"}`)
+	h.mustStatus(rr, http.StatusCreated)
+	var k struct {
+		ID     string `json:"id"`
+		APIKey string `json:"api_key"`
+	}
+	_ = json.Unmarshal(rr.Body.Bytes(), &k)
+	h.mustStatus(h.do(opsAdmin, "", http.MethodDelete, "/serviceaccounts?name=a2&key_id="+k.ID, ""), http.StatusNotFound)
+	h.mustStatus(h.do(opsAdmin, "", http.MethodDelete, "/serviceaccounts?name=nope&key_id="+k.ID, ""), http.StatusNotFound)
+	// The key still works: neither attempt revoked it.
+	h.mustStatus(h.do(nil, k.APIKey, http.MethodGet, "/me", ""), http.StatusOK)
 }
 
 func (h *saHarness) mustStatus(rr *httptest.ResponseRecorder, want int) {

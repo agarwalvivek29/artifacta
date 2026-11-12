@@ -161,7 +161,9 @@ Accepted credentials (checked in this order):
 to OIDC; anything else goes to the inner provider unchanged. Service accounts have subject
 `sa:<name>`, which is a reserved prefix. Admin operations (`/serviceaccounts`) need
 `ARTIFACTA_SA_ADMIN_GROUPS` (matched to the bearer token's `groups` claim) or
-`ARTIFACTA_SA_ADMIN_EMAILS`; with both unset they return 404. Never log a raw key: use
+`ARTIFACTA_SA_ADMIN_EMAILS`; with both unset they return 404 (keys keep working). They
+require an `Authorization: Bearer` header, so a session cookie is never enough. `groups`
+and `email_verified` are decoded leniently; `email_verified=false` blocks the email match. Never log a raw key: use
 `domain.KeyPrefix`.
 
 **Initial visibility at publish.** `POST /artifacts?visibility=private|invited|org|link` (`public`

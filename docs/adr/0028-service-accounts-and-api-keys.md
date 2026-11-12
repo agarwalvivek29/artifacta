@@ -35,8 +35,8 @@ delivered once into a secret store. The same model already runs in production fo
    its key is allowed to use (in particular `org`), share, version, label, and so on,
    exactly as a human owner can. No on-behalf-of identity.
 3. **API keys are the only SA credential** (no OIDC client-credentials). Format
-   `afa_<43 base64url chars>` (256 bits). Only `sha256(key)` and an 8-character display
-   prefix are stored. The key is shown once at mint time. TTL is one of `30d`, `90d`,
+   `afa_<43 base64url chars>` (256 bits). Only `sha256(key)` and a 12-character display
+   prefix (`afa_` plus 8 characters) are stored. The key is shown once at mint time. TTL is one of `30d`, `90d`,
    `never` (the server's allow-list, `ARTIFACTA_SA_KEY_TTLS`). `last_used_at` is tracked.
    Disabling an SA invalidates all of its keys immediately.
 4. **Auth chain.** A new `APIKeyAuth` decorator wraps the existing provider (OIDC or
@@ -86,12 +86,23 @@ delivered once into a secret store. The same model already runs in production fo
   keep their current visibility but become read-only (ownerless in practice). This is
   accepted for now; ownership transfer is out of scope (see spec 12).
 - The admin check depends on IdP configuration (the groups claim) that lives outside this
-  repo.
+  repo. The email fallback trusts the IdP's `email` claim; an id_token that says
+  `email_verified=false` never matches it.
+- Unsetting both admin lists only hides admin management (`/serviceaccounts` → 404). Keys
+  already minted keep authenticating, and can't be listed or revoked until an admin list is
+  set again. To cut every bot off, disable the accounts first.
+- New audit actions (`SA_CREATE`, `SA_DISABLE`, `SA_KEY_CREATE`, `SA_KEY_REVOKE`) are
+  part of the hash chain. A CLI older than 0.2.0 can't parse them, so `artifacta audit
+verify` needs the new CLI, and rolling the server back below 0.2.0 makes the chain fail
+  verification at the first service-account event.
 
 ### Neutral
 
 - SAs can view `org` artifacts like any authenticated principal, since `CanView` treats
   them as a normal identity.
+- The admin API is CLI-only: `/serviceaccounts` requires an `Authorization: Bearer` header,
+  so a browser session cookie is never enough. This also keeps a cross-site page from
+  driving it with an admin's cookie.
 
 ---
 

@@ -39,6 +39,10 @@ message Identity {
   // groups_claim_present distinguishes "token carried no groups claim at all" (a
   // login from before the groups scope was requested) from "member of no groups".
   bool groups_claim_present = 4;
+  // email_unverified is true when the CLI bearer id_token explicitly says
+  // email_verified=false. Runtime-only: such an email never matches the
+  // service-account admin email list (ADR-0028). An absent claim leaves it false.
+  bool email_unverified = 5;
 }
 
 // Artifact is the container for one published document. It holds the metadata

@@ -97,8 +97,12 @@ type Identity struct {
 	// groups_claim_present distinguishes "token carried no groups claim at all" (a
 	// login from before the groups scope was requested) from "member of no groups".
 	GroupsClaimPresent bool `protobuf:"varint,4,opt,name=groups_claim_present,json=groupsClaimPresent,proto3" json:"groups_claim_present,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	// email_unverified is true when the CLI bearer id_token explicitly says
+	// email_verified=false. Runtime-only: such an email never matches the
+	// service-account admin email list (ADR-0028). An absent claim leaves it false.
+	EmailUnverified bool `protobuf:"varint,5,opt,name=email_unverified,json=emailUnverified,proto3" json:"email_unverified,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *Identity) Reset() {
@@ -155,6 +159,13 @@ func (x *Identity) GetGroups() []string {
 func (x *Identity) GetGroupsClaimPresent() bool {
 	if x != nil {
 		return x.GroupsClaimPresent
+	}
+	return false
+}
+
+func (x *Identity) GetEmailUnverified() bool {
+	if x != nil {
+		return x.EmailUnverified
 	}
 	return false
 }
@@ -694,12 +705,13 @@ var File_artifacta_v1_artifact_proto protoreflect.FileDescriptor
 
 const file_artifacta_v1_artifact_proto_rawDesc = "" +
 	"\n" +
-	"\x1bartifacta/v1/artifact.proto\x12\fartifacta.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"|\n" +
+	"\x1bartifacta/v1/artifact.proto\x12\fartifacta.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xa7\x01\n" +
 	"\bIdentity\x12\x10\n" +
 	"\x03sub\x18\x01 \x01(\tR\x03sub\x12\x14\n" +
 	"\x05email\x18\x02 \x01(\tR\x05email\x12\x16\n" +
 	"\x06groups\x18\x03 \x03(\tR\x06groups\x120\n" +
-	"\x14groups_claim_present\x18\x04 \x01(\bR\x12groupsClaimPresent\"\x88\x03\n" +
+	"\x14groups_claim_present\x18\x04 \x01(\bR\x12groupsClaimPresent\x12)\n" +
+	"\x10email_unverified\x18\x05 \x01(\bR\x0femailUnverified\"\x88\x03\n" +
 	"\bArtifact\x12\x12\n" +
 	"\x04slug\x18\x01 \x01(\tR\x04slug\x12\x1b\n" +
 	"\towner_sub\x18\x02 \x01(\tR\bownerSub\x12\x14\n" +

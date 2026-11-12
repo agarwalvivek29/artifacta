@@ -66,7 +66,9 @@ durable identity.
       feature), the 403 says to run `artifacta login` again; a caller whose claim is present
       but doesn't match gets a plain 403.
 - [ ] Given both admin lists are empty, when anyone calls `/serviceaccounts`, then the
-      response is 404 (feature off).
+      response is 404 (management off; existing keys keep working).
+- [ ] Given an admin authenticated only by a browser session cookie, when they call
+      `/serviceaccounts`, then the response is 401 (CLI bearer required).
 - [ ] Given an SA, when an admin runs `sa key create ci-reports --ttl 90d`, then the raw
       key is returned once, and only its hash and prefix are persisted.
 - [ ] A TTL outside `ARTIFACTA_SA_KEY_TTLS` is rejected with 400.
@@ -91,7 +93,8 @@ durable identity.
 
 ```
 Request ──► APIKeyAuth.Identify
-              │ Bearer afa_… ? ── yes ─► store.AuthenticateKey(sha256) ─► Identity{sub:"sa:<name>"} | 401
+              │ Bearer afa_… ? ── yes ─► Store.APIKeyByHash(sha256) ─► KeyUsable? ─► Store.ServiceAccountByID
+              │                          ─► active? ─► Identity{sub:"sa:<name>"} (+ throttled TouchAPIKey) | 401
               │ no
               ▼
             inner provider (OIDCProvider | Local)  — unchanged

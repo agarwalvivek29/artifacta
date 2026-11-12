@@ -58,7 +58,11 @@ Usage:
   artifacta unshare <slug> <email-or-sub>
                             revoke a person's access to an artifact
   artifacta visibility <slug> <private|invited|org|link>
-                            set an artifact's visibility explicitly
+                            set an artifact's visibility explicitly:
+                              private  only you (the default)
+                              invited  you plus people you share with
+                              org      everyone signed in; listed on their dashboards
+                              link     anyone with the link (unlisted, no login on the VPN)
   artifacta label <slug> <label>
                             claim a custom subdomain label ({label}.{root})
   artifacta edit <slug> [--title <title>] [--description <text>]

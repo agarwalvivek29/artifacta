@@ -33,8 +33,9 @@ themselves. Do not attempt to log in on their behalf.
 `ARTIFACTA_BASE_URL` and `ARTIFACTA_API_KEY` (a service-account key, `afa_…`). The CLI then
 publishes as that service account (`sa:<name>`), which owns the artifact; every command below
 works unchanged. A CI job may publish straight to org visibility with
-`artifacta publish --visibility org <file>`, but only when its pipeline config asks for that;
-otherwise leave the private default. Never print, log or commit the key, and never ask a user to paste one into the
+`artifacta publish --visibility org <file>` (listed on everyone's dashboard) or
+`--visibility link` (anyone with the link, unlisted), but only when its pipeline config asks for
+that; otherwise leave the private default. Never print, log or commit the key, and never ask a user to paste one into the
 chat. If the key is missing or rejected (401), report it and stop; minting keys is an admin task
 (`artifacta sa key create`).
 

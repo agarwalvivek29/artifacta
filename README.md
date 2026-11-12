@@ -126,6 +126,7 @@ Regenerate schema types after editing proto: `cd packages/schema && ./scripts/ge
 | `artifacta login`                               | Set up local identity + session token                  |
 | `artifacta publish <file>`                      | Publish a new artifact, print its private link         |
 | `artifacta publish --visibility org <file>`     | Publish already `org`/`link`/`invited` (one step)      |
+| `artifacta visibility <slug> link`              | Anyone with the link: unlisted, no login on the VPN    |
 | `artifacta publish --update <slug> <file>`      | Append a new immutable version to an existing artifact |
 | `artifacta versions <slug>`                     | List an artifact's versions                            |
 | `artifacta share <slug> <grantee-sub>`          | Share with a subject (sets visibility to `INVITED`)    |
@@ -157,7 +158,8 @@ artifacta sa key create ci-reports --ttl 90d        # 30d | 90d | never; the key
 
 # The bot (store the key in its secret store)
 ARTIFACTA_BASE_URL=https://artifacta.example.com ARTIFACTA_API_KEY=afa_... \
-  artifacta publish --visibility org report.html   # created org-visible; omit for private
+  artifacta publish --visibility org report.html   # on everyone's dashboard; omit for private
+#   or --visibility link: anyone with the link can open it, but it's unlisted (no dashboard flood)
 
 # Rotate / offboard
 artifacta sa key list ci-reports                   # status: active | stale | expired | revoked

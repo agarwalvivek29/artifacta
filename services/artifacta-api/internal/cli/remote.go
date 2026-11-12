@@ -144,6 +144,11 @@ func remoteURL(baseURL, path string) string {
 // `login` (the reliable signal) or a non-localhost base URL, so a logged-out CLI
 // pointed at a real deployment errors instead of silently writing locally.
 func remoteTarget(c config.Config) bool {
+	// A service-account key (ADR-0028) only means something to a server, so a bot
+	// pointed at a localhost server must never fall back to the local store.
+	if strings.TrimSpace(os.Getenv("ARTIFACTA_API_KEY")) != "" {
+		return true
+	}
 	return c.LoggedIn || (c.BaseURL != "" && !isLocalhost(c.BaseURL))
 }
 

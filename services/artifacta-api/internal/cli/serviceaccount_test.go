@@ -164,3 +164,15 @@ func TestServiceAccountCommandsEndToEnd(t *testing.T) {
 		t.Fatalf("key create without --ttl: err = %v", err)
 	}
 }
+
+func TestAPIKeyForcesRemoteTarget(t *testing.T) {
+	c := config.Config{BaseURL: "http://localhost:8080"} // not logged in, localhost
+	t.Setenv("ARTIFACTA_API_KEY", "")
+	if remoteTarget(c) {
+		t.Fatal("logged-out localhost config treated as remote")
+	}
+	t.Setenv("ARTIFACTA_API_KEY", "afa_x")
+	if !remoteTarget(c) {
+		t.Fatal("ARTIFACTA_API_KEY set but the CLI would publish to the local store")
+	}
+}

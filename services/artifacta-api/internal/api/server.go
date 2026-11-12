@@ -73,6 +73,20 @@ type Store interface {
 	// slug (false = already taken / no such artifact) and resolve label → slug.
 	SetLabel(slug, label string) (bool, error)
 	SlugForLabel(label string) (string, bool, error)
+	// Service accounts (ADR-0028). CreateServiceAccount returns domain.ErrSAExists
+	// when the name is taken (disabled accounts included — names are never
+	// reused). Disable and Revoke return false when there is nothing to change
+	// (unknown, already disabled / revoked, or a key of another account).
+	CreateServiceAccount(sa *artifactav1.ServiceAccount) error
+	ServiceAccountByName(name string) (*artifactav1.ServiceAccount, bool, error)
+	ServiceAccountByID(id string) (*artifactav1.ServiceAccount, bool, error)
+	ListServiceAccounts() ([]*artifactav1.ServiceAccount, error)
+	DisableServiceAccount(name, bySub string, at time.Time) (bool, error)
+	PutAPIKey(k *artifactav1.ApiKey) error
+	APIKeyByHash(hash string) (*artifactav1.ApiKey, bool, error)
+	ListAPIKeys(saID string) ([]*artifactav1.ApiKey, error)
+	RevokeAPIKey(saID, keyID string, at time.Time) (bool, error)
+	TouchAPIKey(keyID string, at time.Time) error
 }
 
 type Blob interface {

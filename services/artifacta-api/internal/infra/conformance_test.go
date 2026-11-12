@@ -1,6 +1,7 @@
 package infra_test
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"testing"
@@ -351,6 +352,7 @@ func TestFileStore_Conformance(t *testing.T) {
 	}
 	runStoreConformance(t, st)
 	runAppendRawConformance(t, st)
+	runServiceAccountConformance(t, st)
 }
 
 // Runs only when ARTIFACTA_TEST_DATABASE_URL points at a reachable postgres
@@ -366,6 +368,112 @@ func TestSQLStore_Conformance(t *testing.T) {
 	}
 	runStoreConformance(t, st)
 	runAppendRawConformance(t, st)
+	runServiceAccountConformance(t, st)
+}
+
+// runServiceAccountConformance checks service-account and API-key storage
+// (ADR-0028) identically on both backends. Names carry a per-run prefix so it is
+// safe to re-run against a non-empty database.
+func runServiceAccountConformance(t *testing.T, st api.Store) {
+	t.Helper()
+	k := fmt.Sprintf("t%d", time.Now().UnixNano())
+	now := time.Now().UTC().Truncate(time.Second)
+	name := k + "-ci"
+
+	sa := &artifactav1.ServiceAccount{
+		Id: domain.NewSlug(), Name: name, Description: "ci bot",
+		CreatedBySub: "admin", CreatedByEmail: "admin@example.com", CreatedAt: timestamppb.New(now),
+	}
+	if err := st.CreateServiceAccount(sa); err != nil {
+		t.Fatalf("CreateServiceAccount: %v", err)
+	}
+	dup := &artifactav1.ServiceAccount{Id: domain.NewSlug(), Name: name, CreatedAt: timestamppb.New(now)}
+	if err := st.CreateServiceAccount(dup); !errors.Is(err, domain.ErrSAExists) {
+		t.Fatalf("duplicate name: err = %v, want ErrSAExists", err)
+	}
+	got, ok, err := st.ServiceAccountByName(name)
+	if err != nil || !ok || got.GetId() != sa.GetId() || got.GetDescription() != "ci bot" {
+		t.Fatalf("ServiceAccountByName = %+v, %v, %v", got, ok, err)
+	}
+	if byID, ok, _ := st.ServiceAccountByID(sa.GetId()); !ok || byID.GetName() != name {
+		t.Fatalf("ServiceAccountByID = %+v, %v", byID, ok)
+	}
+	if _, ok, _ := st.ServiceAccountByName(k + "-nope"); ok {
+		t.Fatal("ServiceAccountByName of unknown name returned ok")
+	}
+	all, err := st.ListServiceAccounts()
+	if err != nil || !containsSA(all, name) {
+		t.Fatalf("ListServiceAccounts missing %s (err %v)", name, err)
+	}
+
+	// Keys: put, lookup by hash, list newest-first, touch, revoke (scoped).
+	raw1, hash1, prefix1 := domain.NewAPIKey()
+	_, hash2, prefix2 := domain.NewAPIKey()
+	k1 := &artifactav1.ApiKey{Id: domain.NewSlug(), ServiceAccountId: sa.GetId(), KeyHash: hash1, Prefix: prefix1,
+		CreatedAt: timestamppb.New(now.Add(-time.Hour)), CreatedBySub: "admin"}
+	k2 := &artifactav1.ApiKey{Id: domain.NewSlug(), ServiceAccountId: sa.GetId(), KeyHash: hash2, Prefix: prefix2,
+		CreatedAt: timestamppb.New(now), ExpiresAt: timestamppb.New(now.AddDate(0, 0, 30))}
+	for _, key := range []*artifactav1.ApiKey{k1, k2} {
+		if err := st.PutAPIKey(key); err != nil {
+			t.Fatalf("PutAPIKey: %v", err)
+		}
+	}
+	gk, ok, err := st.APIKeyByHash(domain.HashAPIKey(raw1))
+	if err != nil || !ok || gk.GetId() != k1.GetId() || gk.GetServiceAccountId() != sa.GetId() {
+		t.Fatalf("APIKeyByHash = %+v, %v, %v", gk, ok, err)
+	}
+	if _, ok, _ := st.APIKeyByHash(domain.HashAPIKey("afa_not-a-key")); ok {
+		t.Fatal("APIKeyByHash of unknown key returned ok")
+	}
+	keys, err := st.ListAPIKeys(sa.GetId())
+	if err != nil || len(keys) != 2 || keys[0].GetId() != k2.GetId() {
+		t.Fatalf("ListAPIKeys = %d keys (first %v), err %v; want 2, newest first", len(keys), keys, err)
+	}
+	if err := st.TouchAPIKey(k1.GetId(), now); err != nil {
+		t.Fatalf("TouchAPIKey: %v", err)
+	}
+	if gk, _, _ := st.APIKeyByHash(hash1); !gk.GetLastUsedAt().AsTime().Equal(now) {
+		t.Fatalf("last_used_at = %v, want %v", gk.GetLastUsedAt().AsTime(), now)
+	}
+	if ok, err := st.RevokeAPIKey("other-sa", k1.GetId(), now); err != nil || ok {
+		t.Fatalf("RevokeAPIKey across accounts = %v, %v; want false", ok, err)
+	}
+	if ok, err := st.RevokeAPIKey(sa.GetId(), k1.GetId(), now); err != nil || !ok {
+		t.Fatalf("RevokeAPIKey = %v, %v; want true", ok, err)
+	}
+	if ok, _ := st.RevokeAPIKey(sa.GetId(), k1.GetId(), now); ok {
+		t.Fatal("second RevokeAPIKey returned true")
+	}
+	if gk, _, _ := st.APIKeyByHash(hash1); gk.GetRevokedAt() == nil {
+		t.Fatal("revoked key has no revoked_at")
+	}
+
+	// Disable: once, keeps the row, and the name stays taken.
+	if ok, err := st.DisableServiceAccount(name, "admin", now); err != nil || !ok {
+		t.Fatalf("DisableServiceAccount = %v, %v", ok, err)
+	}
+	if ok, _ := st.DisableServiceAccount(name, "admin", now); ok {
+		t.Fatal("second DisableServiceAccount returned true")
+	}
+	if ok, _ := st.DisableServiceAccount(k+"-nope", "admin", now); ok {
+		t.Fatal("DisableServiceAccount of unknown name returned true")
+	}
+	if d, _, _ := st.ServiceAccountByName(name); d.GetDisabledAt() == nil || d.GetDisabledBySub() != "admin" {
+		t.Fatalf("disabled account = %+v", d)
+	}
+	reuse := &artifactav1.ServiceAccount{Id: domain.NewSlug(), Name: name, CreatedAt: timestamppb.New(now)}
+	if err := st.CreateServiceAccount(reuse); !errors.Is(err, domain.ErrSAExists) {
+		t.Fatalf("reusing a disabled name: err = %v, want ErrSAExists", err)
+	}
+}
+
+func containsSA(sas []*artifactav1.ServiceAccount, name string) bool {
+	for _, sa := range sas {
+		if sa.GetName() == name {
+			return true
+		}
+	}
+	return false
 }
 
 func containsSlug(arts []*artifactav1.Artifact, slug string) bool {

@@ -92,7 +92,7 @@ func NewSQLStore(dsn string) (*SQLStore, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open postgres: %w", err)
 	}
-	if err := db.AutoMigrate(&artifactRow{}, &grantRow{}, &versionRow{}, &commentRow{}, &auditRow{}); err != nil {
+	if err := db.AutoMigrate(&artifactRow{}, &grantRow{}, &versionRow{}, &commentRow{}, &auditRow{}, &serviceAccountRow{}, &apiKeyRow{}); err != nil {
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
 	return &SQLStore{db: db}, nil

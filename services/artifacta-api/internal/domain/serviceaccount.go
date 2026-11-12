@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -149,3 +150,7 @@ func IsAdmin(who *artifactav1.Identity, adminGroups, adminEmails []string) bool 
 	}
 	return false
 }
+
+// ErrSAExists is returned by a store when a service-account name is already
+// taken — including by a disabled account, since names are never reused.
+var ErrSAExists = errors.New("service account already exists")

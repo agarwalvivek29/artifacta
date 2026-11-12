@@ -29,15 +29,22 @@ type FileStore struct {
 	grants   []*artifactav1.Grant
 	versions []*artifactav1.ArtifactVersion
 	comments []*artifactav1.Comment
-	last     string // chain head
-	seq      int64
+	// Service accounts and their keys (ADR-0028), indexed for O(1) auth lookups.
+	sas       map[string]*artifactav1.ServiceAccount // id → account
+	saByName  map[string]string                      // name → id
+	keys      map[string]*artifactav1.ApiKey         // id → key
+	keyByHash map[string]string                      // key_hash → id
+	last      string                                 // chain head
+	seq       int64
 }
 
 func NewFileStore(dir string) (*FileStore, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}
-	s := &FileStore{dir: dir, arts: map[string]*artifactav1.Artifact{}, labels: map[string]string{}}
+	s := &FileStore{dir: dir, arts: map[string]*artifactav1.Artifact{}, labels: map[string]string{},
+		sas: map[string]*artifactav1.ServiceAccount{}, saByName: map[string]string{},
+		keys: map[string]*artifactav1.ApiKey{}, keyByHash: map[string]string{}}
 	if err := s.load(); err != nil {
 		return nil, err
 	}
@@ -49,6 +56,8 @@ func (s *FileStore) grantsPath() string   { return filepath.Join(s.dir, "grants.
 func (s *FileStore) versionsPath() string { return filepath.Join(s.dir, "versions.json") }
 func (s *FileStore) commentsPath() string { return filepath.Join(s.dir, "comments.json") }
 func (s *FileStore) auditPath() string    { return filepath.Join(s.dir, "audit.log") }
+func (s *FileStore) sasPath() string      { return filepath.Join(s.dir, "serviceaccounts.json") }
+func (s *FileStore) keysPath() string     { return filepath.Join(s.dir, "apikeys.json") }
 
 func (s *FileStore) load() error {
 	if b, err := os.ReadFile(s.artsPath()); err == nil {
@@ -101,6 +110,34 @@ func (s *FileStore) load() error {
 				return err
 			}
 			s.comments = append(s.comments, c)
+		}
+	}
+	if b, err := os.ReadFile(s.sasPath()); err == nil {
+		var raw []json.RawMessage
+		if err := json.Unmarshal(b, &raw); err != nil {
+			return err
+		}
+		for _, msg := range raw {
+			sa := &artifactav1.ServiceAccount{}
+			if err := protojson.Unmarshal(msg, sa); err != nil {
+				return err
+			}
+			s.sas[sa.GetId()] = sa
+			s.saByName[sa.GetName()] = sa.GetId()
+		}
+	}
+	if b, err := os.ReadFile(s.keysPath()); err == nil {
+		var raw []json.RawMessage
+		if err := json.Unmarshal(b, &raw); err != nil {
+			return err
+		}
+		for _, msg := range raw {
+			k := &artifactav1.ApiKey{}
+			if err := protojson.Unmarshal(msg, k); err != nil {
+				return err
+			}
+			s.keys[k.GetId()] = k
+			s.keyByHash[k.GetKeyHash()] = k.GetId()
 		}
 	}
 	if b, err := os.ReadFile(s.auditPath()); err == nil {

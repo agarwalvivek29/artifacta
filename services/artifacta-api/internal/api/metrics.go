@@ -14,10 +14,11 @@ import (
 // (and /metrics falls back to its stub), which keeps tests that build a bare
 // Server unchanged.
 type Metrics struct {
-	reg      *prometheus.Registry
-	requests *prometheus.CounterVec
-	duration *prometheus.HistogramVec
-	inFlight prometheus.Gauge
+	reg       *prometheus.Registry
+	requests  *prometheus.CounterVec
+	duration  *prometheus.HistogramVec
+	inFlight  prometheus.Gauge
+	saKeyAuth *prometheus.CounterVec
 }
 
 // NewMetrics builds a private registry (not the global default, so tests and
@@ -44,8 +45,12 @@ func NewMetrics() *Metrics {
 			Name: "http_requests_in_flight",
 			Help: "In-flight HTTP requests.",
 		}),
+		saKeyAuth: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "artifacta_sa_key_auth_total",
+			Help: "Service-account API key authentications by result (ok, unknown, revoked, expired, disabled, error).",
+		}, []string{"result"}),
 	}
-	reg.MustRegister(m.requests, m.duration, m.inFlight)
+	reg.MustRegister(m.requests, m.duration, m.inFlight, m.saKeyAuth)
 	return m
 }
 
@@ -62,4 +67,13 @@ func (m *Metrics) observe(method, route, status string, seconds float64) {
 	}
 	m.requests.WithLabelValues(method, route, status).Inc()
 	m.duration.WithLabelValues(method, route).Observe(seconds)
+}
+
+// recordSAKeyAuth counts one API-key authentication attempt by its bounded
+// result label (ADR-0028).
+func (m *Metrics) recordSAKeyAuth(result string) {
+	if m == nil {
+		return
+	}
+	m.saKeyAuth.WithLabelValues(result).Inc()
 }

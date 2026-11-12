@@ -1316,6 +1316,9 @@ func serve() error {
 		srv.Auth = &api.Local{Token: c.Token, ID: c.Identity()}
 		fmt.Printf("auth: local single-token adapter\n")
 	}
+	// Service-account API keys (ADR-0028) are checked in front of whichever
+	// provider was selected above; non-key credentials pass through unchanged.
+	srv.Auth = &api.APIKeyAuth{Inner: srv.Auth, Store: st, Metrics: metrics, Logger: logger}
 	if c.CDNEgress {
 		fmt.Printf("render: CDN egress ALLOWED — artifacts may load deps from a CDN at view time\n")
 	} else {

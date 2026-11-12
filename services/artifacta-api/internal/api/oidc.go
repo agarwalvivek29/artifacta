@@ -139,11 +139,18 @@ func (p *OIDCProvider) identifyBearer(ctx context.Context, raw string) (*artifac
 	}
 	var claims struct {
 		Email string `json:"email"`
+		// Groups is a pointer so an absent claim (a login from before the CLI
+		// requested the groups scope) is distinct from an empty one (ADR-0028).
+		Groups *[]string `json:"groups"`
 	}
 	if err := idToken.Claims(&claims); err != nil {
 		return nil, false
 	}
-	return &artifactav1.Identity{Sub: idToken.Subject, Email: claims.Email}, true
+	id := &artifactav1.Identity{Sub: idToken.Subject, Email: claims.Email}
+	if claims.Groups != nil {
+		id.Groups, id.GroupsClaimPresent = *claims.Groups, true
+	}
+	return id, true
 }
 
 // Login begins the Authorization-Code + PKCE flow: it generates a state nonce

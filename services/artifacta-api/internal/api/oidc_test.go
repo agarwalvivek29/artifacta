@@ -30,6 +30,8 @@ type mockIDP struct {
 	// (an RFC 6749 §5.2 error response) instead of a token, so tests can drive the
 	// token-endpoint rejection path.
 	tokenErr string
+	// groups, when non-nil, is emitted as the id_token's `groups` claim.
+	groups []string
 }
 
 func newMockIDP(t *testing.T, clientID, sub, email string) *mockIDP {
@@ -91,14 +93,18 @@ func (m *mockIDP) signIDToken(t *testing.T, exp time.Time) string {
 	t.Helper()
 	enc := base64.RawURLEncoding
 	header := enc.EncodeToString(mustJSON(t, map[string]any{"alg": "RS256", "typ": "JWT", "kid": "test-key"}))
-	payload := enc.EncodeToString(mustJSON(t, map[string]any{
+	claims := map[string]any{
 		"iss":   m.server.URL,
 		"sub":   m.sub,
 		"aud":   m.clientID,
 		"email": m.email,
 		"exp":   exp.Unix(),
 		"iat":   time.Now().Unix(),
-	}))
+	}
+	if m.groups != nil {
+		claims["groups"] = m.groups
+	}
+	payload := enc.EncodeToString(mustJSON(t, claims))
 	signingInput := header + "." + payload
 	sum := sha256.Sum256([]byte(signingInput))
 	sig, err := rsa.SignPKCS1v15(rand.Reader, m.key, crypto.SHA256, sum[:])
@@ -366,4 +372,36 @@ func cookieValueOpened(t *testing.T, p *OIDCProvider, cookies []*http.Cookie, na
 		t.Fatalf("%s cookie failed signature check", name)
 	}
 	return v
+}
+
+// TestOIDCBearerCarriesGroupsClaim covers the service-account admin input
+// (ADR-0028): the bearer path exposes the groups claim, and tells an absent
+// claim apart from an empty one.
+func TestOIDCBearerCarriesGroupsClaim(t *testing.T) {
+	cases := []struct {
+		name        string
+		groups      []string
+		wantPresent bool
+		wantGroups  []string
+	}{
+		{"claim absent", nil, false, nil},
+		{"claim empty", []string{}, true, nil},
+		{"member", []string{"Everyone", "DevOps-Engineering-L1"}, true, []string{"Everyone", "DevOps-Engineering-L1"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			idp := newMockIDP(t, "test-client", "u1", "u1@example.com")
+			idp.groups = c.groups
+			p := newTestProvider(t, idp)
+			req := httptest.NewRequest(http.MethodGet, "/me", nil)
+			req.Header.Set("Authorization", "Bearer "+idp.signIDToken(t, time.Now().Add(time.Hour)))
+			who, ok := p.Identify(req)
+			if !ok {
+				t.Fatal("Identify rejected a valid bearer")
+			}
+			if who.GetGroupsClaimPresent() != c.wantPresent || strings.Join(who.GetGroups(), ",") != strings.Join(c.wantGroups, ",") {
+				t.Fatalf("groups = %v (present %v), want %v (present %v)", who.GetGroups(), who.GetGroupsClaimPresent(), c.wantGroups, c.wantPresent)
+			}
+		})
+	}
 }

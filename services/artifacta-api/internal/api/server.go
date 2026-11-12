@@ -787,9 +787,14 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
+	kind := "user"
+	if domain.IsServiceAccount(who.GetSub()) {
+		kind = "service_account"
+	}
 	_ = json.NewEncoder(w).Encode(map[string]string{
 		"sub":   who.GetSub(),
 		"email": who.GetEmail(),
+		"kind":  kind,
 	})
 }
 

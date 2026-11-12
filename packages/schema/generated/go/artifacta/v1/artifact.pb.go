@@ -87,11 +87,18 @@ func (Visibility) EnumDescriptor() ([]byte, []int) {
 // Identity is a verified principal. Sub is the immutable subject id (OIDC `sub`
 // or local user id). Grants bind to Sub, never to a mutable email.
 type Identity struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Sub           string                 `protobuf:"bytes,1,opt,name=sub,proto3" json:"sub,omitempty"`
-	Email         string                 `protobuf:"bytes,2,opt,name=email,proto3" json:"email,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Sub   string                 `protobuf:"bytes,1,opt,name=sub,proto3" json:"sub,omitempty"`
+	Email string                 `protobuf:"bytes,2,opt,name=email,proto3" json:"email,omitempty"`
+	// groups is the caller's IdP `groups` claim, read from a CLI bearer id_token
+	// (ADR-0028). Runtime-only: used for the service-account admin check and never
+	// persisted. Empty for service accounts, the local adapter and browser sessions.
+	Groups []string `protobuf:"bytes,3,rep,name=groups,proto3" json:"groups,omitempty"`
+	// groups_claim_present distinguishes "token carried no groups claim at all" (a
+	// login from before the groups scope was requested) from "member of no groups".
+	GroupsClaimPresent bool `protobuf:"varint,4,opt,name=groups_claim_present,json=groupsClaimPresent,proto3" json:"groups_claim_present,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *Identity) Reset() {
@@ -136,6 +143,20 @@ func (x *Identity) GetEmail() string {
 		return x.Email
 	}
 	return ""
+}
+
+func (x *Identity) GetGroups() []string {
+	if x != nil {
+		return x.Groups
+	}
+	return nil
+}
+
+func (x *Identity) GetGroupsClaimPresent() bool {
+	if x != nil {
+		return x.GroupsClaimPresent
+	}
+	return false
 }
 
 // Artifact is the container for one published document. It holds the metadata
@@ -673,10 +694,12 @@ var File_artifacta_v1_artifact_proto protoreflect.FileDescriptor
 
 const file_artifacta_v1_artifact_proto_rawDesc = "" +
 	"\n" +
-	"\x1bartifacta/v1/artifact.proto\x12\fartifacta.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"2\n" +
+	"\x1bartifacta/v1/artifact.proto\x12\fartifacta.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"|\n" +
 	"\bIdentity\x12\x10\n" +
 	"\x03sub\x18\x01 \x01(\tR\x03sub\x12\x14\n" +
-	"\x05email\x18\x02 \x01(\tR\x05email\"\x88\x03\n" +
+	"\x05email\x18\x02 \x01(\tR\x05email\x12\x16\n" +
+	"\x06groups\x18\x03 \x03(\tR\x06groups\x120\n" +
+	"\x14groups_claim_present\x18\x04 \x01(\bR\x12groupsClaimPresent\"\x88\x03\n" +
 	"\bArtifact\x12\x12\n" +
 	"\x04slug\x18\x01 \x01(\tR\x04slug\x12\x1b\n" +
 	"\towner_sub\x18\x02 \x01(\tR\bownerSub\x12\x14\n" +

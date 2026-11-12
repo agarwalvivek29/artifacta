@@ -16,6 +16,12 @@ enum AuditAction {
   // EDIT records an owner changing an artifact's mutable metadata (title /
   // description). The versioned bytes are immutable and unaffected.
   AUDIT_ACTION_EDIT = 5;
+  // Service-account lifecycle (ADR-0028). These rows set slug = "sa:<name>" and
+  // principal_sub = the acting admin.
+  AUDIT_ACTION_SA_CREATE = 6;
+  AUDIT_ACTION_SA_DISABLE = 7;
+  AUDIT_ACTION_SA_KEY_CREATE = 8;
+  AUDIT_ACTION_SA_KEY_REVOKE = 9;
 }
 
 // AuditEvent is one row of the inbuilt, append-only, hash-chained audit trail.

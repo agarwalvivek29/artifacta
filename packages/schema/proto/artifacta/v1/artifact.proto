@@ -32,6 +32,13 @@ enum Visibility {
 message Identity {
   string sub = 1;
   string email = 2;
+  // groups is the caller's IdP `groups` claim, read from a CLI bearer id_token
+  // (ADR-0028). Runtime-only: used for the service-account admin check and never
+  // persisted. Empty for service accounts, the local adapter and browser sessions.
+  repeated string groups = 3;
+  // groups_claim_present distinguishes "token carried no groups claim at all" (a
+  // login from before the groups scope was requested) from "member of no groups".
+  bool groups_claim_present = 4;
 }
 
 // Artifact is the container for one published document. It holds the metadata

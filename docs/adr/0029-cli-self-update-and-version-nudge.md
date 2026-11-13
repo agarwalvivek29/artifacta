@@ -22,10 +22,35 @@ own binary from GitHub Releases with SHA-256 verification, and that has worked w
 ## Decision
 
 1. **`artifacta upgrade` installs.** It resolves a target version, downloads
-   `artifacta_<ver>_<os>_<arch>.tar.gz` and `checksums.txt` from the GitHub release, verifies the
-   SHA-256 (fails closed when the checksum file or entry is missing, unlike `install.sh`'s best
-   effort), extracts the binary and atomically renames it over the running executable (staged in
-   the same directory). Running the command is the consent; nothing updates in the background.
+   `artifacta_<ver>_<os>_<arch>.tar.gz`, `checksums.txt` and `checksums.txt.sig` from the GitHub
+   release, verifies the signature and then the SHA-256 (failing closed when any of them is missing
+   or wrong, unlike `install.sh`'s best effort), extracts the binary and atomically renames it over
+   the running executable (staged in the same directory). Running the command is the consent;
+   nothing updates in the background.
+   - **Signed releases.** `release.yml` builds in one job and signs `checksums.txt` in another that
+     runs only SHA-pinned actions and the system `openssl`, with an Ed25519 key held only in the
+     `ARTIFACTA_RELEASE_SIGNING_KEY` secret. It checks the signature against
+     `.github/release-signing.pub.pem` and refuses to publish unsigned; server images publish only
+     after the signed release exists. The CLI carries the public key(s) and refuses any release that
+     doesn't verify, so a stolen GitHub token can replace release assets but can't get a binary
+     installed. A missing signature is a hard stop, never "use the installer instead" (which
+     doesn't check signatures). Releases before 0.2.1 are unsigned, so self-update can't install
+     them. Ed25519 over cosign: verification is a stdlib call, with no sigstore dependency or
+     network trust root. The CLI accepts a list of keys, so rotation is: ship a release that trusts
+     old and new, then switch the secret.
+   - **Verified in memory.** The signature, checksum and archive are checked and extracted from
+     memory, never re-read from disk between checks.
+   - **Downgrades ask.** A target older than the running CLI that the user didn't name with
+     `--version` (it came from the deployment's unauthenticated `/version`) needs a y/N on a
+     terminal, or `--yes`; without a terminal it refuses. A controlled base URL can't silently roll
+     users back.
+   - **No guessing.** Logged in but `/version` can't be read (VPN down, a dev build)? upgrade
+     stops and asks for `--latest` or `--version` rather than installing a release that may not
+     match the deployment.
+   - Only plain `X.Y.Z` versions are accepted, from flags, `/version` or GitHub, so nothing a
+     server sends can reach a download URL or the terminal unchecked; pre-releases are not
+     supported. The staged file is fsynced, keeps the old binary's mode (and owner under sudo),
+     and after the swap the new binary must report the target version.
    - Target precedence: `--version X` > `--latest` > the logged-in deployment's `/version`
      (match it, up or down, as ADR-0021) > the latest GitHub release.
    - `--check` prints current and target and installs nothing (the old advice behaviour).
@@ -56,6 +81,9 @@ own binary from GitHub Releases with SHA-256 verification, and that has worked w
 - Package-manager or container installs can be overwritten out from under the manager; those
   users should keep using their manager (the GHCR image is pinned by tag anyway).
 - One extra unauthenticated `GET /version` per user per day.
+- The signing key is a long-lived secret: losing it means a new key pair and a CLI release that
+  carries it; leaking it reopens the supply-chain path until that rotation ships.
+- `install.sh` still verifies only the SHA-256 (best effort); a signed installer is a follow-up.
 - 0.2.0 and older CLIs have no self-update; their users upgrade by hand one last time.
 
 ---

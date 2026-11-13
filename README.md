@@ -141,8 +141,8 @@ Regenerate schema types after editing proto: `cd packages/schema && ./scripts/ge
 | `artifacta version`                                | Print the build version                                |
 
 Upgrading: `artifacta upgrade` downloads the release that matches the deployment you are logged in
-to (or the latest release), checks its SHA-256 against the release's `checksums.txt`, and replaces
-the binary in place. Remote commands print a one-line reminder to stderr, at most once a day, when
+to (or the latest release), checks its signature and SHA-256, and replaces the binary in place.
+Going to an older version asks first (`--yes` skips the question). Remote commands print a one-line reminder to stderr, at most once a day, when
 the CLI and deployment disagree (off for `CI`, `ARTIFACTA_API_KEY` bots and
 `ARTIFACTA_NO_UPDATE_CHECK=1`). Installed somewhere root-owned? Run the `sudo` command it prints.
 

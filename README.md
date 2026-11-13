@@ -121,24 +121,30 @@ Regenerate schema types after editing proto: `cd packages/schema && ./scripts/ge
 
 ### CLI reference
 
-| Command                                         | Does                                                   |
-| ----------------------------------------------- | ------------------------------------------------------ |
-| `artifacta login`                               | Set up local identity + session token                  |
-| `artifacta publish <file>`                      | Publish a new artifact, print its private link         |
-| `artifacta publish --visibility org <file>`     | Publish already `org`/`link`/`invited` (one step)      |
-| `artifacta visibility <slug> link`              | Anyone with the link: unlisted, no login on the VPN    |
-| `artifacta publish --update <slug> <file>`      | Append a new immutable version to an existing artifact |
-| `artifacta versions <slug>`                     | List an artifact's versions                            |
-| `artifacta share <slug> <grantee-sub>`          | Share with a subject (sets visibility to `INVITED`)    |
-| `artifacta edit <slug> [--title/--description]` | Edit an artifact's title and/or description            |
-| `artifacta ls`                                  | List your artifacts                                    |
-| `artifacta sa ...`                              | Manage service accounts and their API keys (admins)    |
-| `artifacta serve`                               | Run the viewer server                                  |
-| `artifacta audit verify`                        | Verify the audit-log hash chain (file or Postgres)     |
-| `artifacta upgrade`                             | Recommend the CLI version matching your deployment     |
-| `artifacta doctor` / `whoami`                   | Connectivity + auth health check; print your identity  |
-| `artifacta migrate`                             | Offline file-store → Postgres/S3 data migration        |
-| `artifacta version`                             | Print the build version                                |
+| Command                                            | Does                                                   |
+| -------------------------------------------------- | ------------------------------------------------------ |
+| `artifacta login`                                  | Set up local identity + session token                  |
+| `artifacta publish <file>`                         | Publish a new artifact, print its private link         |
+| `artifacta publish --visibility org <file>`        | Publish already `org`/`link`/`invited` (one step)      |
+| `artifacta visibility <slug> link`                 | Anyone with the link: unlisted, no login on the VPN    |
+| `artifacta publish --update <slug> <file>`         | Append a new immutable version to an existing artifact |
+| `artifacta versions <slug>`                        | List an artifact's versions                            |
+| `artifacta share <slug> <grantee-sub>`             | Share with a subject (sets visibility to `INVITED`)    |
+| `artifacta edit <slug> [--title/--description]`    | Edit an artifact's title and/or description            |
+| `artifacta ls`                                     | List your artifacts                                    |
+| `artifacta sa ...`                                 | Manage service accounts and their API keys (admins)    |
+| `artifacta serve`                                  | Run the viewer server                                  |
+| `artifacta audit verify`                           | Verify the audit-log hash chain (file or Postgres)     |
+| `artifacta upgrade [--check\|--latest\|--version]` | Install the CLI version matching your deployment       |
+| `artifacta doctor` / `whoami`                      | Connectivity + auth health check; print your identity  |
+| `artifacta migrate`                                | Offline file-store → Postgres/S3 data migration        |
+| `artifacta version`                                | Print the build version                                |
+
+Upgrading: `artifacta upgrade` downloads the release that matches the deployment you are logged in
+to (or the latest release), checks its SHA-256 against the release's `checksums.txt`, and replaces
+the binary in place. Remote commands print a one-line reminder to stderr, at most once a day, when
+the CLI and deployment disagree (off for `CI`, `ARTIFACTA_API_KEY` bots and
+`ARTIFACTA_NO_UPDATE_CHECK=1`). Installed somewhere root-owned? Run the `sudo` command it prints.
 
 Also available: `visibility`, `unshare`, `label`, `comment`, `healthcheck`, `search` — run `artifacta --help` for the full set.
 

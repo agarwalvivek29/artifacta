@@ -14,13 +14,22 @@ on:
         description: "Version to (re)build images for, e.g. 0.0.1"
         required: true
 
+# Least privilege: each job asks for what it needs. Only `release` can write
+# release assets; only `images` can push to GHCR.
 permissions:
-  contents: write # create the GitHub Release + upload CLI assets
-  packages: write # push images to GHCR
+  contents: read
 
 jobs:
   images:
     name: ${{ matrix.image }} → ghcr
+    # On a tag, publish images only after the signed CLI release exists, so a
+    # deployment never runs a version `artifacta upgrade` can't install. A
+    # workflow_dispatch rebuild has no release job and runs on its own.
+    needs: release
+    permissions:
+      contents: read
+      packages: write # push images to GHCR
+    if: ${{ !cancelled() && (needs.release.result == 'success' || (github.event_name == 'workflow_dispatch' && needs.release.result == 'skipped')) }}
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -61,12 +70,14 @@ jobs:
             org.opencontainers.image.version=${{ steps.ver.outputs.v }}
 
   cli:
-    name: cli binaries → release
+    name: cli binaries
     runs-on: ubuntu-latest
     if: github.event_name == 'push' # only on a tag; dispatch just rebuilds images
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version: "1.26"
       - name: Cross-compile the CLI
@@ -86,7 +97,47 @@ jobs:
             rm -f "$bin"
           done
           cd ../../dist && sha256sum * > checksums.txt && ls -la
-      - uses: softprops/action-gh-release@v2
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  # Signs checksums.txt (ADR-0029) and publishes the release. Kept apart from
+  # the build so the signing key is only ever in a job that runs SHA-pinned
+  # actions and no project code; `artifacta upgrade` refuses a release whose
+  # checksums.txt.sig doesn't verify against the public key built into the CLI.
+  release:
+    name: sign + publish release
+    needs: cli
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the GitHub Release + upload CLI assets
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: dist
+          path: dist
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          path: src
+          sparse-checkout: .github/release-signing.pub.pem
+          sparse-checkout-cone-mode: false
+      - name: Sign checksums
+        env:
+          SIGNING_KEY: ${{ secrets.ARTIFACTA_RELEASE_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          [ -n "$SIGNING_KEY" ] || { echo "::error::ARTIFACTA_RELEASE_SIGNING_KEY is not set; refusing to publish an unsigned release"; exit 1; }
+          # The system openssl, with no config or provider paths an earlier step could have set.
+          ossl() { env -u OPENSSL_CONF -u OPENSSL_MODULES -u LD_PRELOAD /usr/bin/openssl "$@"; }
+          ossl version
+          key=$(mktemp); trap 'rm -f "$key"' EXIT
+          printf '%s\n' "$SIGNING_KEY" > "$key"
+          ossl pkeyutl -sign -inkey "$key" -rawin -in dist/checksums.txt -out dist/checksums.txt.sig
+          ossl pkeyutl -verify -pubin -inkey src/.github/release-signing.pub.pem -rawin \
+            -in dist/checksums.txt -sigfile dist/checksums.txt.sig
+      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           files: dist/*
           generate_release_notes: true

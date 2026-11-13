@@ -2,6 +2,45 @@
 
 All notable changes to ArtifactA are documented here. Versions follow [SemVer](https://semver.org).
 
+## 0.2.1 — 2026-11-13
+
+CLI only; the server is unchanged, so a 0.2.0 deployment works with this CLI.
+
+### Added
+
+- **`artifacta upgrade` now installs** (ADR-0029, spec 13). It downloads the release that matches
+  the deployment you are logged in to (upgrading or downgrading), or the latest release when you
+  are not logged in, checks the release's signature and SHA-256, and swaps the binary in place.
+  Anything missing or wrong aborts with the old binary untouched.
+  - Releases are now signed: the release workflow signs `checksums.txt` with an Ed25519 key only
+    CI holds, and the CLI refuses any release whose `checksums.txt.sig` is missing or doesn't
+    verify against the public key built into it. Server images now publish only after the signed
+    CLI release does.
+  - Installing an older version because the deployment runs it asks first (y/N), or needs `--yes`
+    without a terminal. `--version` counts as consent.
+  - Logged in but the deployment's version can't be read (VPN off)? It stops and asks for
+    `--latest` or `--version` instead of guessing.
+  - `--check` shows current and target and installs nothing; `--latest` and `--version <x.y.z>`
+    pick the target explicitly.
+  - No write access to the install directory (for example `/usr/local/bin`) prints the
+    `sudo <path-to-artifacta> upgrade --version …` and installer commands to run instead. The
+    swapped binary keeps the old one's permissions (and owner, under sudo). Windows, read-only
+    installs, and dev builds without an explicit `--version`/`--latest` get advice instead of an
+    in-place swap.
+- **A daily upgrade reminder.** Commands that talk to a deployment check its version at most once
+  a day and, on a mismatch, print one line to stderr: `run: artifacta upgrade`. It never fails or
+  holds up the command, and is off under `CI`, for `ARTIFACTA_API_KEY` bots and with
+  `ARTIFACTA_NO_UPDATE_CHECK=1`.
+
+### Upgrade notes
+
+- 0.2.0 and older CLIs can't update themselves; install 0.2.1 once with the install script.
+  From then on, `artifacta upgrade`.
+- Bump the deployment to 0.2.1 too (the server is unchanged): the CLI and deployment versions are
+  compared, and 0.2.0 releases are unsigned, so a 0.2.1 CLI can't self-downgrade to them.
+- Releasing needs the `ARTIFACTA_RELEASE_SIGNING_KEY` repository secret; the release job fails
+  without it rather than publishing unsigned.
+
 ## 0.2.0 — 2026-11-12
 
 ### Added

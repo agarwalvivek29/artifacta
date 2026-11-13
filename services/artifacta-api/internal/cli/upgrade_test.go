@@ -48,7 +48,7 @@ func TestNoteVersionMismatch(t *testing.T) {
 	// CLI newer than deployment → advises a downgrade with the pinned version.
 	Version = "0.0.6"
 	out := captureStdout(t, func() { noteVersionMismatch(versionServer(t, "0.0.4").URL) })
-	if !strings.Contains(out, "downgrade") || !strings.Contains(out, "ARTIFACTA_VERSION=0.0.4") {
+	if !strings.Contains(out, "downgrade") || !strings.Contains(out, "artifacta upgrade") {
 		t.Fatalf("newer CLI should advise a downgrade to the deployment version, got: %q", out)
 	}
 	// Unreachable server → silent (never fails the caller).
@@ -94,60 +94,16 @@ func TestParseMinServerVersion(t *testing.T) {
 	}
 }
 
-func TestDecideUpgrade(t *testing.T) {
-	// Already latest.
-	if a := decideUpgrade("0.0.3", "0.0.3", "", "", false); !a.upToDate {
-		t.Errorf("same version should be up to date: %+v", a)
-	}
-	// A dev build is never "up to date" — it should still report the latest.
-	if a := decideUpgrade("dev", "0.0.3", "", "", false); a.upToDate {
-		t.Errorf("dev build should not be reported up to date: %+v", a)
-	}
-
-	// Newer, independent of server → prompt upgrade unconditionally.
-	a := decideUpgrade("0.0.3", "0.0.4", "", "", false)
-	if a.upToDate || a.blockedByServer || !strings.Contains(a.message, installCmd) {
-		t.Errorf("independent newer release should prompt an upgrade: %+v", a)
-	}
-
-	// Newer, depends on server, not logged in → advise logging in / upgrade.
-	a = decideUpgrade("0.0.3", "0.1.0", "0.1.0", "", false)
-	if a.blockedByServer || !strings.Contains(a.message, "log in") {
-		t.Errorf("server-dependent release, no server, should mention logging in: %+v", a)
-	}
-
-	// Newer, depends on server, deployment new enough → compatible, prompt upgrade.
-	a = decideUpgrade("0.0.3", "0.1.0", "0.1.0", "0.1.0", true)
-	if a.blockedByServer || a.upToDate || !strings.Contains(a.message, installCmd) {
-		t.Errorf("server-dependent release with a new-enough deployment should prompt upgrade: %+v", a)
-	}
-
-	// Newer, depends on server, deployment too old → blocked, upgrade server first.
-	a = decideUpgrade("0.0.3", "0.1.0", "0.1.0", "0.0.3", true)
-	if !a.blockedByServer || !strings.Contains(a.message, "server first") {
-		t.Errorf("server-dependent release with an old deployment should be blocked: %+v", a)
-	}
-}
-
 func TestDecideMatch(t *testing.T) {
-	// CLI matches the deployment → compatible, nothing to do.
-	if a := decideMatch("0.0.3", "0.0.3"); a.blockedByServer || !strings.Contains(a.message, "matches your deployment") {
-		t.Errorf("equal versions should be a clean match: %+v", a)
-	}
-	// CLI older than deployment → install the (newer) matching version.
-	a := decideMatch("0.0.2", "0.0.3")
-	if a.blockedByServer || !strings.Contains(a.message, "older") || !strings.Contains(a.message, "ARTIFACTA_VERSION=0.0.3") {
-		t.Errorf("older CLI should be told to install the deployment version: %+v", a)
-	}
-	// CLI newer than deployment → downgrade to match (the user's key scenario).
-	a = decideMatch("0.0.4", "0.0.3")
-	if !a.blockedByServer || !strings.Contains(a.message, "downgrade") || !strings.Contains(a.message, "ARTIFACTA_VERSION=0.0.3") {
-		t.Errorf("newer CLI should be offered a downgrade to the deployment version: %+v", a)
-	}
-	// dev build → install the deployment's release to match.
-	a = decideMatch("dev", "0.0.3")
-	if !strings.Contains(a.message, "dev build") || !strings.Contains(a.message, "ARTIFACTA_VERSION=0.0.3") {
-		t.Errorf("dev build should be told to install the matching release: %+v", a)
+	for _, tc := range []struct{ cli, server, want string }{
+		{"0.0.3", "0.0.3", "matches your deployment"},
+		{"0.0.2", "0.0.3", "older than your deployment (0.0.3). to install the matching version:\n  artifacta upgrade"},
+		{"0.0.4", "0.0.3", "a downgrade"},
+		{"dev", "0.0.3", "artifacta upgrade --version 0.0.3"},
+	} {
+		if got := decideMatch(tc.cli, tc.server); !strings.Contains(got, tc.want) {
+			t.Errorf("decideMatch(%s, %s) = %q, want it to contain %q", tc.cli, tc.server, got, tc.want)
+		}
 	}
 }
 

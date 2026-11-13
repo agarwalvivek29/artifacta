@@ -1,54 +1,33 @@
 package cli
 
 import (
-	"encoding/json"
+	"context"
+	"errors"
 	"fmt"
-	"io"
 	"net/http"
+	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 
 	"github.com/agarwalvivek29/here.now/services/artifacta-api/internal/config"
+	"github.com/agarwalvivek29/here.now/services/artifacta-api/internal/selfupdate"
 )
 
-const (
-	// releasesAPI is the GitHub latest-release endpoint for the CLI.
-	releasesAPI = "https://api.github.com/repos/agarwalvivek29/artifacta/releases/latest"
-	// installCmd is the canonical one-liner that installs/upgrades the CLI (latest).
-	installCmd = "curl -fsSL https://raw.githubusercontent.com/agarwalvivek29/artifacta/main/install.sh | sh"
-	// installBase is the install-script URL, used to build version-pinned commands.
-	installBase = "https://raw.githubusercontent.com/agarwalvivek29/artifacta/main/install.sh"
-)
+// installBase is the install-script URL, used to build version-pinned commands
+// for when the CLI can't replace itself (no write access, Windows).
+const installBase = "https://raw.githubusercontent.com/agarwalvivek29/artifacta/main/install.sh"
 
-// pinnedInstall returns the install one-liner pinned to an exact version, so the
-// user can install the version their deployment runs (upgrade or downgrade).
+// pinnedInstall returns the install one-liner pinned to an exact version.
 func pinnedInstall(ver string) string {
 	return fmt.Sprintf("curl -fsSL %s | ARTIFACTA_VERSION=%s sh", installBase, ver)
 }
 
-// latestRelease fetches the latest CLI release from GitHub, returning its version
-// (tag without a leading "v") and the minimum server version it requires (parsed
-// from a `min-server-version:` marker in the release body, empty when the release
-// is independent of the deployed server version).
-func latestRelease() (version, minServer string, err error) {
-	resp, err := http.Get(releasesAPI)
-	if err != nil {
-		return "", "", fmt.Errorf("reach GitHub releases: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return "", "", fmt.Errorf("github releases: %s: %s", resp.Status, strings.TrimSpace(string(b)))
-	}
-	var rel struct {
-		TagName string `json:"tag_name"`
-		Body    string `json:"body"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&rel); err != nil {
-		return "", "", fmt.Errorf("decode release: %w", err)
-	}
-	return strings.TrimPrefix(rel.TagName, "v"), parseMinServerVersion(rel.Body), nil
-}
+// Test seams: the updater and the path of the binary being replaced.
+var (
+	newUpdater     = selfupdate.New
+	executablePath = selfupdate.Executable
+)
 
 // parseMinServerVersion extracts a `min-server-version: X.Y.Z` marker from a
 // release body (case-insensitive). Absent → "" (the enhancement is independent of
@@ -107,73 +86,25 @@ func cmpVersion(a, b string) int {
 	return 0
 }
 
-// upgradeAdvice is the outcome of the version check.
-type upgradeAdvice struct {
-	upToDate        bool // already on the latest release
-	blockedByServer bool // a newer CLI exists but the deployment is too old
-	message         string
-}
-
-// decideUpgrade is the pure decision at the heart of `artifacta upgrade`. It
-// branches exactly as specified: an enhancement independent of the server
-// (minServer == "") prompts an upgrade unconditionally; one that depends on the
-// server checks the deployed version and only prompts when the deployment is new
-// enough, otherwise it says to upgrade the server first. haveServer is false when
-// the CLI is not logged in to a deployment (so no server version is known).
-func decideUpgrade(current, latest, minServer, serverVer string, haveServer bool) upgradeAdvice {
-	if current != "dev" && cmpVersion(latest, current) <= 0 {
-		return upgradeAdvice{upToDate: true, message: fmt.Sprintf("artifacta %s is up to date.", current)}
+// decideMatch is the deployment-anchored advice: the safest CLI to run against a
+// deployment is the CLI of the same version (server and CLI ship from one
+// binary per release, ADR-0021). login and doctor print it on a mismatch.
+func decideMatch(current, serverVer string) string {
+	switch {
+	case current != "dev" && cmpVersion(current, serverVer) == 0:
+		return fmt.Sprintf("artifacta %s matches your deployment — compatible.", current)
+	case current == "dev":
+		return fmt.Sprintf("you are on a dev build; your deployment runs %s. to install the matching release:\n  artifacta upgrade --version %s", serverVer, serverVer)
+	case cmpVersion(current, serverVer) < 0:
+		return fmt.Sprintf("your CLI (%s) is older than your deployment (%s). to install the matching version:\n  artifacta upgrade", current, serverVer)
+	default:
+		return fmt.Sprintf("your CLI (%s) is newer than your deployment (%s). to install the deployment's version (a downgrade):\n  artifacta upgrade\nor upgrade the deployment to %s.", current, serverVer, current)
 	}
-	newer := fmt.Sprintf("a newer artifacta CLI is available: %s (you have %s).", latest, current)
-
-	// Independent of the deployed server version → prompt unconditionally.
-	if minServer == "" {
-		return upgradeAdvice{message: newer + "\nupgrade:\n  " + installCmd}
-	}
-
-	// Depends on the server being >= minServer.
-	if !haveServer {
-		return upgradeAdvice{message: newer +
-			fmt.Sprintf("\nit needs a deployed server >= %s. log in to a deployment (artifacta login <url>) to check compatibility, or upgrade:\n  %s", minServer, installCmd)}
-	}
-	if cmpVersion(serverVer, minServer) >= 0 {
-		return upgradeAdvice{message: newer +
-			fmt.Sprintf("\ncompatible with your deployment (%s ≥ required %s). upgrade:\n  %s", serverVer, minServer, installCmd)}
-	}
-	return upgradeAdvice{blockedByServer: true, message: newer +
-		fmt.Sprintf("\nit needs a deployed server >= %s, but your deployment is %s.\nupgrade the server first, then upgrade the CLI.", minServer, serverVer)}
-}
-
-// decideMatch is the deployment-anchored decision: the safest CLI to run against a
-// deployment is the CLI of the same version (server + CLI ship from one binary per
-// release). It recommends installing the deployment's exact version — upgrading OR
-// downgrading — so a user on the latest CLI whose deployment is older is told to
-// match it, and no new development strands users on an incompatible CLI.
-func decideMatch(current, serverVer string) upgradeAdvice {
-	if current != "dev" && cmpVersion(current, serverVer) == 0 {
-		return upgradeAdvice{message: fmt.Sprintf("artifacta %s matches your deployment — compatible.", current)}
-	}
-	if current == "dev" {
-		return upgradeAdvice{message: fmt.Sprintf(
-			"you are on a dev build; your deployment runs %s. install the matching release:\n  %s",
-			serverVer, pinnedInstall(serverVer))}
-	}
-	if cmpVersion(current, serverVer) < 0 {
-		return upgradeAdvice{message: fmt.Sprintf(
-			"your CLI (%s) is older than your deployment (%s). install the matching version:\n  %s",
-			current, serverVer, pinnedInstall(serverVer))}
-	}
-	// CLI newer than the deployment → downgrade to match (or upgrade the server).
-	return upgradeAdvice{blockedByServer: true, message: fmt.Sprintf(
-		"your CLI (%s) is newer than your deployment (%s).\nfor guaranteed compatibility, install the deployment's version (downgrade):\n  %s\nor upgrade the deployment to %s.",
-		current, serverVer, pinnedInstall(serverVer), current)}
 }
 
 // noteVersionMismatch best-effort warns when the running CLI's version differs
-// from the deployment it is talking to, printing the exact command to match it
-// (upgrade or downgrade). It is advisory: it prints nothing when the versions
-// match and never fails the caller when the server can't be reached. Used right
-// after login and by doctor so a mismatch surfaces immediately, not later.
+// from the deployment it talks to. It prints nothing when they match and never
+// fails the caller when the server can't be reached. Used right after login.
 func noteVersionMismatch(baseURL string) {
 	sv, _, _, err := serverVersion(baseURL)
 	if err != nil {
@@ -182,36 +113,132 @@ func noteVersionMismatch(baseURL string) {
 	if Version != "dev" && cmpVersion(Version, sv) == 0 {
 		return
 	}
-	fmt.Println(decideMatch(Version, sv).message)
+	fmt.Println(decideMatch(Version, sv))
 }
 
-// upgrade advises whether to change the installed CLI. When the CLI is logged in
-// to a deployment, the deployment's version is the anchor (match it, up or down).
-// Otherwise it falls back to checking GitHub for a newer release and reasoning
-// about server-version dependencies. It only advises — it never self-updates.
-func upgrade() error {
-	c, err := config.Load()
-	if err != nil {
-		return err
-	}
+const upgradeUsage = `usage: artifacta upgrade [--check] [--latest | --version <x.y.z>]
 
-	// Deployment-anchored path: match the version the deployment actually runs.
-	if remoteTarget(c) {
-		serverVer, _, _, verr := serverVersion(c.BaseURL)
-		if verr != nil {
-			fmt.Printf("(could not read the deployed version from %s: %v)\n", c.BaseURL, verr)
-		} else {
-			fmt.Println(decideMatch(Version, serverVer).message)
+Installs the artifacta CLI that matches your deployment (upgrade or downgrade),
+or the latest release when you are not logged in. The release is downloaded from
+GitHub and SHA-256 verified before it replaces this binary.
+
+  --check            show the current and target versions; install nothing
+  --latest           install the newest release instead of the deployment's version
+  --version <x.y.z>  install exactly this version
+`
+
+// upgrade replaces the running CLI with the target release (ADR-0029). Running
+// the command is the consent; it never updates anything in the background.
+func upgrade(args []string) error {
+	var check, latest bool
+	var pin string
+	for i := 0; i < len(args); i++ {
+		switch a := args[i]; {
+		case a == "--check":
+			check = true
+		case a == "--latest":
+			latest = true
+		case a == "--version":
+			if i+1 >= len(args) {
+				return errors.New("--version needs a value, e.g. --version 0.2.1")
+			}
+			i++
+			pin = args[i]
+		case strings.HasPrefix(a, "--version="):
+			pin = strings.TrimPrefix(a, "--version=")
+		case a == "-h" || a == "--help" || a == "help":
+			fmt.Print(upgradeUsage)
 			return nil
+		default:
+			return fmt.Errorf("unknown upgrade argument %q\n%s", a, upgradeUsage)
 		}
 	}
+	if latest && pin != "" {
+		return errors.New("use either --latest or --version, not both")
+	}
+	if pin != "" && !selfupdate.ValidVersion(pin) {
+		return fmt.Errorf("%q is not a release version (want e.g. 0.2.1)", pin)
+	}
 
-	// Not logged in (or the server was unreachable): check GitHub for a newer CLI
-	// and reason about whether it needs a newer server.
-	latest, minServer, err := latestRelease()
+	ctx := context.Background()
+	up := newUpdater()
+	target, source, err := upgradeTarget(ctx, up, pin, latest)
 	if err != nil {
 		return err
 	}
-	fmt.Println(decideUpgrade(Version, latest, minServer, "", false).message)
+	fmt.Printf("current: artifacta %s\n", Version)
+	fmt.Printf("target:  artifacta %s (%s)\n", target, source)
+
+	if Version != "dev" && cmpVersion(Version, target) == 0 {
+		fmt.Println("already up to date.")
+		return nil
+	}
+	if check {
+		fmt.Printf("would install %s (run without --check to install).\n", target)
+		return nil
+	}
+	// A dev build is usually a `go build`/`go install` binary; don't overwrite it
+	// unless the user named a version on purpose.
+	if Version == "dev" && pin == "" && !latest {
+		fmt.Printf("this is a dev build; not replacing it. to install the release anyway:\n  artifacta upgrade --version %s\n", target)
+		return nil
+	}
+
+	exe, err := executablePath()
+	if err != nil {
+		return fmt.Errorf("find the running binary: %w\ninstall instead:\n  %s", err, pinnedInstall(target))
+	}
+	fmt.Printf("downloading and verifying artifacta %s…\n", target)
+	if err := up.Install(ctx, target, exe); err != nil {
+		switch {
+		case errors.Is(err, os.ErrPermission):
+			return fmt.Errorf("%v\nno write access to %s. rerun with sudo (keep the version explicit; sudo has a different login):\n  sudo artifacta upgrade --version %s\nor install with:\n  %s", err, exe, target, pinnedInstall(target))
+		case errors.Is(err, selfupdate.ErrUnsupported):
+			return fmt.Errorf("%v\ninstall instead:\n  %s", err, pinnedInstall(target))
+		default:
+			return fmt.Errorf("upgrade failed, %s is unchanged: %w", exe, err)
+		}
+	}
+	// Prove the swap took by asking the new binary for its version.
+	if out, verr := exec.Command(exe, "version").Output(); verr == nil {
+		fmt.Printf("upgraded %s → %s", exe, strings.TrimSpace(string(out))+"\n")
+	} else {
+		fmt.Printf("installed artifacta %s at %s\n", target, exe)
+	}
 	return nil
+}
+
+// upgradeTarget picks the version to install and says where it came from:
+// --version, then --latest, then the logged-in deployment's /version, then the
+// latest GitHub release.
+func upgradeTarget(ctx context.Context, up *selfupdate.Updater, pin string, latest bool) (target, source string, err error) {
+	if pin != "" {
+		return selfupdate.Normalize(pin), "requested", nil
+	}
+	if !latest {
+		c, err := config.Load()
+		if err != nil {
+			return "", "", err
+		}
+		if remoteTarget(c) {
+			sv, _, _, verr := serverVersion(c.BaseURL)
+			switch {
+			case verr != nil:
+				fmt.Printf("(could not read the deployed version from %s: %v; using the latest release)\n", c.BaseURL, verr)
+			case !selfupdate.ValidVersion(sv):
+				fmt.Printf("(deployment %s reports version %q, not a release; using the latest release)\n", c.BaseURL, sv)
+			default:
+				return selfupdate.Normalize(sv), "matches your deployment " + c.BaseURL, nil
+			}
+		}
+	}
+	ver, notes, err := up.LatestRelease(ctx)
+	if err != nil {
+		return "", "", fmt.Errorf("%w\n(pin one instead: artifacta upgrade --version <x.y.z>)", err)
+	}
+	source = "latest release"
+	if min := parseMinServerVersion(notes); min != "" {
+		source += ", needs a deployment ≥ " + min
+	}
+	return ver, source, nil
 }

@@ -47,7 +47,9 @@ Usage:
   artifacta login [<url>]     log in to a server; <url> auto-configures everything
   artifacta doctor            check server connectivity + authentication
   artifacta whoami            print the authenticated identity
-  artifacta upgrade           check for a newer CLI (and server compatibility)
+  artifacta upgrade [--check] [--latest | --version <x.y.z>]
+                            install the CLI that matches your deployment (or the latest
+                            release), SHA-256 verified; --check only reports
   artifacta publish [--visibility <private|invited|org|link>] <file>
                             publish a new artifact (private unless --visibility), print its link
   artifacta publish --update <slug> <file>
@@ -96,6 +98,11 @@ func Run(args []string) error {
 		fmt.Print(usage)
 		return nil
 	}
+	defer startNudge(args[0])()
+	return dispatch(args)
+}
+
+func dispatch(args []string) error {
 	switch args[0] {
 	case "login":
 		return login(args[1:])
@@ -104,7 +111,7 @@ func Run(args []string) error {
 	case "whoami":
 		return whoami()
 	case "upgrade", "--upgrade":
-		return upgrade()
+		return upgrade(args[1:])
 	case "publish":
 		return publish(args[1:])
 	case "versions":
@@ -1300,14 +1307,14 @@ func doctor() error {
 		fmt.Printf("  ✓ auth: %s <%s>\n", sub, email)
 	}
 
-	// Version compatibility: matched is a ✓; a mismatch prints the exact command
-	// to install the deployment's version (advice only — doctor never changes it).
+	// Version compatibility: matched is a ✓; a mismatch says to run
+	// `artifacta upgrade` (doctor itself never changes the binary).
 	if sv, _, _, verr := serverVersion(c.BaseURL); verr == nil {
 		if Version != "dev" && cmpVersion(Version, sv) == 0 {
 			fmt.Printf("  ✓ version: cli %s matches deployment\n", Version)
 		} else {
 			fmt.Printf("  ! version: cli %s vs deployment %s\n", Version, sv)
-			fmt.Println(decideMatch(Version, sv).message)
+			fmt.Println(decideMatch(Version, sv))
 		}
 	}
 	fmt.Println("all checks passed")

@@ -82,6 +82,7 @@ ADRs are **never deleted**. They are a historical record.
 | [0015](./0015-anchored-comments.md)                   | Anchored comments (comment on selected text, sandbox postMessage bridge)                  | Accepted | 2026-08-25 |
 | [0016](./0016-comment-threads.md)                     | Comment threads (replies via parent_id, one level, thread-level resolve)                  | Accepted | 2026-08-25 |
 | [0028](./0028-service-accounts-and-api-keys.md)       | Service accounts with admin-minted API keys (amends 0007)                                 | Proposed | 2026-11-02 |
+| [0029](./0029-cli-self-update-and-version-nudge.md)   | CLI self-update and a daily version-mismatch nudge (supersedes 0021 §5)                   | Accepted | 2026-11-13 |
 
 ---
 

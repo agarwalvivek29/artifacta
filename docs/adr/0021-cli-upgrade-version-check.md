@@ -1,7 +1,7 @@
 # 0021 — CLI upgrade check with server version/compatibility endpoint
 
 **Date**: 2026-09-11
-**Status**: Accepted (implemented 2026-09-11)
+**Status**: Accepted (implemented 2026-09-11); decision 5 superseded by [ADR-0029](0029-cli-self-update-and-version-nudge.md)
 **Deciders**: Vivek Agarwal
 **Related**: [ADR-0020 — CLI public-client login + refresh](0020-cli-public-client-and-refresh.md)
 

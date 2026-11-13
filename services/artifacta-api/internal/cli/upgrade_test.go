@@ -48,7 +48,7 @@ func TestNoteVersionMismatch(t *testing.T) {
 	// CLI newer than deployment → advises a downgrade with the pinned version.
 	Version = "0.0.6"
 	out := captureStdout(t, func() { noteVersionMismatch(versionServer(t, "0.0.4").URL) })
-	if !strings.Contains(out, "downgrade") || !strings.Contains(out, "artifacta upgrade") {
+	if !strings.Contains(out, "newer than your deployment (0.0.4)") || !strings.Contains(out, "downgrade") || !strings.Contains(out, "artifacta upgrade") {
 		t.Fatalf("newer CLI should advise a downgrade to the deployment version, got: %q", out)
 	}
 	// Unreachable server → silent (never fails the caller).

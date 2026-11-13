@@ -1,16 +1,23 @@
 // Package selfupdate installs an artifacta CLI binary from GitHub Releases
-// (ADR-0029). It mirrors install.sh: the same asset naming
-// (artifacta_<ver>_<os>_<arch>.tar.gz) and checksums.txt, so `artifacta upgrade`
-// and a fresh curl-install land on byte-identical binaries. Unlike the installer
-// it fails closed when checksums are missing: a self-updater must never replace
-// itself with an unverified binary. Ported from quickwit-cli's selfupdate.
+// (ADR-0029). It uses the same assets as install.sh
+// (artifacta_<ver>_<os>_<arch>.tar.gz and checksums.txt), so `artifacta upgrade`
+// and a fresh curl-install land on byte-identical binaries. It also requires
+// checksums.txt.sig, an Ed25519 signature made in the release workflow with a
+// key only CI holds, checked against the public keys built into this binary. A
+// stolen GitHub token can replace release assets but cannot sign them. Every
+// check fails closed, and all three files are verified and extracted from
+// memory, so nothing on disk can change between a check and its use. Ported
+// from quickwit-cli's selfupdate.
 package selfupdate
 
 import (
 	"archive/tar"
+	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/ed25519"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -27,20 +34,31 @@ import (
 
 const binaryName = "artifacta"
 
-// Release locations. Plain string vars (not consts) only so a manual end-to-end
-// test can point a build at a local release server via -ldflags -X; there is
-// deliberately no environment override.
+// Release locations and keys. Plain string vars (not consts) only so a manual
+// end-to-end test can point a build at a local release server and test key via
+// -ldflags -X; there is deliberately no environment override.
 var (
-	downloadBase = "https://github.com/agarwalvivek29/artifacta/releases/download"
-	latestAPI    = "https://api.github.com/repos/agarwalvivek29/artifacta/releases/latest"
+	// releasePublicKeys verifies checksums.txt.sig: comma-separated raw Ed25519
+	// public keys, base64. Any one verifying is enough, so a release can ship the
+	// next key before the old one is retired (rotation). The first must match
+	// /.github/release-signing.pub.pem, which the release workflow checks its own
+	// signature against (TestReleaseKeyMatchesPEM).
+	releasePublicKeys = "fsSmCoIF4yhobBOqPmoXS/CxO1Gdm402KN6S/Mz9PWE="
+	downloadBase      = "https://github.com/agarwalvivek29/artifacta/releases/download"
+	latestAPI         = "https://api.github.com/repos/agarwalvivek29/artifacta/releases/latest"
 )
 
-// maxBinary bounds extraction so a malformed archive can't fill the disk.
-const maxBinary = 512 << 20
+const (
+	maxBinary = 512 << 20 // bounds a download or extraction
+	maxSums   = 1 << 20   // checksums.txt is a few lines
+	maxSig    = 1 << 10   // a signature is 64 bytes
+)
 
-// versionRe accepts release versions only (e.g. 0.2.1, 1.0.0-rc.1), so a value
-// read from a server or flag can never smuggle path segments into a download URL.
-var versionRe = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$`)
+// versionRe accepts plain release versions only (e.g. 0.2.1), so a value read
+// from a server or flag can never smuggle path segments into a download URL.
+// Pre-releases are rejected: the CLI's numeric version comparison can't order
+// them, and artifacta does not publish them.
+var versionRe = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+$`)
 
 // ValidVersion reports whether v (with or without a leading "v") is a release version.
 func ValidVersion(v string) bool { return versionRe.MatchString(Normalize(v)) }
@@ -48,6 +66,14 @@ func ValidVersion(v string) bool { return versionRe.MatchString(Normalize(v)) }
 // ErrUnsupported means this platform has no prebuilt binary or can't replace a
 // running executable in place; the caller should fall back to the installer.
 var ErrUnsupported = errors.New("self-update is not supported on this platform")
+
+// ErrUnsigned means the release has no checksums.txt.sig at all (a 404). It is
+// never downgraded to "install it some other way": an unsigned release is either
+// from before signing started or has been tampered with.
+var ErrUnsigned = errors.New("release is not signed")
+
+// errNotFound marks a 404 from the release server.
+var errNotFound = errors.New("not found")
 
 // Updater downloads and installs release binaries. The fields are exported so
 // tests can point it at an httptest server and a fixed platform.
@@ -59,16 +85,39 @@ type Updater struct {
 	DownloadBase string
 	// LatestAPI returns the latest release JSON ({"tag_name": ...}).
 	LatestAPI string
+	// PublicKeys verify the release's checksums.txt.sig; any one is enough.
+	PublicKeys []ed25519.PublicKey
+}
+
+func mustPublicKeys(list string) []ed25519.PublicKey {
+	var keys []ed25519.PublicKey
+	for _, b64 := range strings.Split(list, ",") {
+		k, err := base64.StdEncoding.DecodeString(strings.TrimSpace(b64))
+		if err != nil || len(k) != ed25519.PublicKeySize {
+			panic("selfupdate: bad built-in release public key")
+		}
+		keys = append(keys, ed25519.PublicKey(k))
+	}
+	return keys
 }
 
 // New returns an Updater for the real GitHub repo and this platform.
 func New() *Updater {
 	return &Updater{
-		HTTPClient:   &http.Client{Timeout: 2 * time.Minute},
+		// No whole-request timeout: a ~25 MB download over a slow VPN must not be
+		// cut off. Stalled servers are caught by the header and idle timeouts;
+		// the caller's context bounds the total.
+		HTTPClient: &http.Client{Transport: &http.Transport{
+			Proxy:                 http.ProxyFromEnvironment,
+			TLSHandshakeTimeout:   15 * time.Second,
+			ResponseHeaderTimeout: 30 * time.Second,
+			IdleConnTimeout:       30 * time.Second,
+		}},
 		GOOS:         runtime.GOOS,
 		GOARCH:       runtime.GOARCH,
 		DownloadBase: downloadBase,
 		LatestAPI:    latestAPI,
+		PublicKeys:   mustPublicKeys(releasePublicKeys),
 	}
 }
 
@@ -101,15 +150,47 @@ func (u *Updater) LatestRelease(ctx context.Context) (version, body string, err 
 	return Normalize(doc.TagName), doc.Body, nil
 }
 
-// Install downloads version, verifies it, and replaces the executable at target
-// (normally Executable()). It never touches target unless verification passed.
+// Install downloads version, verifies its signature and checksum, and replaces
+// the executable at target (normally Executable()). target is never touched
+// unless every check passed.
 func (u *Updater) Install(ctx context.Context, version, target string) error {
-	binPath, cleanup, err := u.download(ctx, version)
+	if !ValidVersion(version) {
+		return fmt.Errorf("%q is not a release version (want e.g. 0.2.1)", version)
+	}
+	tag, ver := TagAndVersion(version)
+	asset, err := u.AssetName(ver)
 	if err != nil {
 		return err
 	}
-	defer cleanup()
-	return replaceBinary(binPath, target)
+	base := u.DownloadBase + "/" + tag + "/"
+
+	// Signature first: nothing else is trusted until checksums.txt verifies.
+	sums, err := u.get(ctx, base+"checksums.txt", maxSums)
+	if err != nil {
+		return fmt.Errorf("download checksums.txt for %s: %w; refusing to install an unverified binary", tag, err)
+	}
+	sig, err := u.get(ctx, base+"checksums.txt.sig", maxSig)
+	if errors.Is(err, errNotFound) {
+		return fmt.Errorf("%w: %s has no checksums.txt.sig; refusing to install it", ErrUnsigned, tag)
+	}
+	if err != nil {
+		return fmt.Errorf("download checksums.txt.sig for %s: %w", tag, err)
+	}
+	if err := verifySignature(u.PublicKeys, sums, sig); err != nil {
+		return err
+	}
+	archive, err := u.get(ctx, base+asset, maxBinary)
+	if err != nil {
+		return fmt.Errorf("download %s: %w", asset, err)
+	}
+	if err := verifyChecksum(archive, sums, asset); err != nil {
+		return err
+	}
+	bin, err := extractBinary(archive)
+	if err != nil {
+		return err
+	}
+	return replaceBinary(bin, target)
 }
 
 // Executable returns the resolved path of the running binary (symlinks followed,
@@ -123,42 +204,6 @@ func Executable() (string, error) {
 		exe = resolved
 	}
 	return exe, nil
-}
-
-// download fetches and verifies the release asset, returning the extracted
-// binary's path and a cleanup func for its temp dir.
-func (u *Updater) download(ctx context.Context, version string) (string, func(), error) {
-	if !ValidVersion(version) {
-		return "", nil, fmt.Errorf("%q is not a release version (want e.g. 0.2.1)", version)
-	}
-	tag, ver := TagAndVersion(version)
-	asset, err := u.AssetName(ver)
-	if err != nil {
-		return "", nil, err
-	}
-	tmp, err := os.MkdirTemp("", "artifacta-upgrade-")
-	if err != nil {
-		return "", nil, err
-	}
-	cleanup := func() { _ = os.RemoveAll(tmp) }
-	fail := func(err error) (string, func(), error) { cleanup(); return "", nil, err }
-
-	assetPath := filepath.Join(tmp, asset)
-	if err := u.get(ctx, u.DownloadBase+"/"+tag+"/"+asset, assetPath); err != nil {
-		return fail(fmt.Errorf("download %s: %w", asset, err))
-	}
-	sumsPath := filepath.Join(tmp, "checksums.txt")
-	if err := u.get(ctx, u.DownloadBase+"/"+tag+"/checksums.txt", sumsPath); err != nil {
-		return fail(fmt.Errorf("no checksums.txt for %s (%v); refusing to install an unverified binary", tag, err))
-	}
-	if err := verifyChecksum(assetPath, sumsPath, asset); err != nil {
-		return fail(err)
-	}
-	binPath, err := extractBinary(assetPath, tmp)
-	if err != nil {
-		return fail(err)
-	}
-	return binPath, cleanup, nil
 }
 
 // AssetName is the release asset for ver on this platform. Windows ships a .zip
@@ -178,48 +223,54 @@ func (u *Updater) AssetName(ver string) (string, error) {
 	return fmt.Sprintf("%s_%s_%s_%s.tar.gz", binaryName, Normalize(ver), u.GOOS, u.GOARCH), nil
 }
 
-func (u *Updater) get(ctx context.Context, url, dest string) error {
+// get fetches url into memory, refusing bodies over limit.
+func (u *Updater) get(ctx context.Context, url string, limit int64) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	resp, err := u.HTTPClient.Do(req)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("GET %s: %s", url, resp.Status)
+	switch {
+	case resp.StatusCode == http.StatusNotFound:
+		return nil, errNotFound
+	case resp.StatusCode != http.StatusOK:
+		return nil, fmt.Errorf("GET %s: %s", url, resp.Status)
 	}
-	f, err := os.Create(dest)
+	b, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
 	if err != nil {
-		return err
+		return nil, err
 	}
-	if _, err := io.Copy(f, io.LimitReader(resp.Body, maxBinary)); err != nil {
-		_ = f.Close()
-		return err
+	if int64(len(b)) > limit {
+		return nil, fmt.Errorf("GET %s: larger than %d bytes", url, limit)
 	}
-	return f.Close()
+	return b, nil
 }
 
-// verifyChecksum requires assetPath's SHA-256 to match its line in a
-// sha256sum/GoReleaser-style "<hex>  <name>" file.
-func verifyChecksum(assetPath, sumsPath, assetName string) error {
-	f, err := os.Open(assetPath)
-	if err != nil {
-		return err
+// verifySignature requires sig to be a valid Ed25519 signature of sums under
+// one of keys.
+func verifySignature(keys []ed25519.PublicKey, sums, sig []byte) error {
+	if len(keys) == 0 {
+		return errors.New("no release public key configured; refusing to install")
 	}
-	defer func() { _ = f.Close() }()
-	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return err
+	if len(sig) == ed25519.SignatureSize {
+		for _, k := range keys {
+			if len(k) == ed25519.PublicKeySize && ed25519.Verify(k, sums, sig) {
+				return nil
+			}
+		}
 	}
-	got := hex.EncodeToString(h.Sum(nil))
+	return errors.New("checksums.txt signature does not verify against the built-in release key; refusing to install")
+}
 
-	sums, err := os.ReadFile(sumsPath)
-	if err != nil {
-		return err
-	}
+// verifyChecksum requires archive's SHA-256 to match its line in a
+// sha256sum-style "<hex>  <name>" file.
+func verifyChecksum(archive, sums []byte, assetName string) error {
+	s := sha256.Sum256(archive)
+	got := hex.EncodeToString(s[:])
 	for _, line := range strings.Split(string(sums), "\n") {
 		fields := strings.Fields(line)
 		// sha256sum's binary mode prefixes the name with '*'.
@@ -233,19 +284,13 @@ func verifyChecksum(assetPath, sumsPath, assetName string) error {
 	return fmt.Errorf("checksums.txt has no entry for %s; refusing to install", assetName)
 }
 
-// extractBinary pulls the artifacta binary out of the .tar.gz into dir.
-func extractBinary(archivePath, dir string) (string, error) {
-	f, err := os.Open(archivePath)
+// extractBinary returns the regular-file artifacta entry of the .tar.gz.
+func extractBinary(archive []byte) ([]byte, error) {
+	gz, err := gzip.NewReader(bytes.NewReader(archive))
 	if err != nil {
-		return "", err
-	}
-	defer func() { _ = f.Close() }()
-	gz, err := gzip.NewReader(f)
-	if err != nil {
-		return "", fmt.Errorf("open archive: %w", err)
+		return nil, fmt.Errorf("open archive: %w", err)
 	}
 	defer func() { _ = gz.Close() }()
-
 	tr := tar.NewReader(gz)
 	for {
 		hdr, err := tr.Next()
@@ -253,52 +298,54 @@ func extractBinary(archivePath, dir string) (string, error) {
 			break
 		}
 		if err != nil {
-			return "", fmt.Errorf("read archive: %w", err)
+			return nil, fmt.Errorf("read archive: %w", err)
 		}
 		if filepath.Base(hdr.Name) != binaryName || hdr.Typeflag != tar.TypeReg {
 			continue
 		}
-		out := filepath.Join(dir, binaryName+"-new")
-		w, err := os.OpenFile(out, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)
+		b, err := io.ReadAll(io.LimitReader(tr, maxBinary+1))
 		if err != nil {
-			return "", err
+			return nil, err
 		}
-		if _, err := io.Copy(w, io.LimitReader(tr, maxBinary)); err != nil {
-			_ = w.Close()
-			return "", err
+		if len(b) > maxBinary {
+			return nil, errors.New("binary in archive is too large")
 		}
-		if err := w.Close(); err != nil {
-			return "", err
-		}
-		return out, nil
+		return b, nil
 	}
-	return "", fmt.Errorf("archive did not contain an %q binary", binaryName)
+	return nil, fmt.Errorf("archive did not contain an %q binary", binaryName)
 }
 
-// replaceBinary stages newBin next to target (same filesystem) and renames it
-// over target, which is atomic and works while target is running on Linux and
-// macOS. A permission failure is returned wrapping os.ErrPermission so the
-// caller can suggest sudo or the installer.
-func replaceBinary(newBin, target string) error {
+// replaceBinary writes bin to a staged file next to target (same filesystem),
+// fsyncs it, and renames it over target, which is atomic and works while
+// target is running on Linux and macOS. The new file keeps target's permission
+// bits (never group/world-writable) and, when we can (running as root), its
+// owner, so a `sudo artifacta upgrade` doesn't leave a user's binary
+// root-owned. A permission failure wraps os.ErrPermission so the caller can
+// suggest sudo.
+func replaceBinary(bin []byte, target string) error {
+	mode := os.FileMode(0o755)
+	var orig os.FileInfo
+	if fi, err := os.Stat(target); err == nil {
+		orig, mode = fi, (fi.Mode().Perm()|0o100)&^0o022
+	}
 	dir := filepath.Dir(target)
 	staged, err := os.CreateTemp(dir, ".artifacta-upgrade-*")
 	if err != nil {
 		return fmt.Errorf("stage new binary in %s: %w", dir, err)
 	}
 	stagedPath := staged.Name()
-	in, err := os.Open(newBin)
-	if err != nil {
-		_ = staged.Close()
-		_ = os.Remove(stagedPath)
-		return err
+	_, err = staged.Write(bin)
+	if err == nil {
+		err = staged.Sync()
 	}
-	_, err = io.Copy(staged, in)
-	_ = in.Close()
 	if cerr := staged.Close(); err == nil {
 		err = cerr
 	}
 	if err == nil {
-		err = os.Chmod(stagedPath, 0o755)
+		err = os.Chmod(stagedPath, mode)
+	}
+	if err == nil && orig != nil {
+		preserveOwner(stagedPath, orig)
 	}
 	if err == nil {
 		err = os.Rename(stagedPath, target)
@@ -306,6 +353,10 @@ func replaceBinary(newBin, target string) error {
 	if err != nil {
 		_ = os.Remove(stagedPath)
 		return fmt.Errorf("replace %s: %w", target, err)
+	}
+	if d, derr := os.Open(dir); derr == nil { // persist the rename itself
+		_ = d.Sync()
+		_ = d.Close()
 	}
 	return nil
 }

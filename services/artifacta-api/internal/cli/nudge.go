@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,20 +14,19 @@ import (
 
 // The daily version nudge (ADR-0029): commands that talk to a deployment check
 // its /version at most once per nudgeEvery and, on a mismatch, print one line to
-// stderr pointing at `artifacta upgrade`. It never fails or noticeably delays a
-// command: the check runs alongside the command and is abandoned after
-// nudgeTimeout.
+// stderr pointing at `artifacta upgrade`. It never fails a command. The check
+// starts with the command and its deadline runs from then, so at most once a day
+// a command can end up to nudgeTimeout later than it would have.
 const (
-	nudgeEvery   = 24 * time.Hour
-	nudgeTimeout = 3 * time.Second
-	nudgeFile    = "update-check.json"
+	nudgeEvery = 24 * time.Hour
+	nudgeFile  = "update-check.json"
 )
 
 // Test seams.
 var (
-	nudgeOut       io.Writer = os.Stderr
-	nudgeNow                 = time.Now
-	nudgeFetchTime           = nudgeTimeout
+	nudgeOut     io.Writer = os.Stderr
+	nudgeNow               = time.Now
+	nudgeTimeout           = 3 * time.Second
 )
 
 // nudgeCommands are the commands that talk to a deployment.
@@ -53,12 +51,19 @@ func startNudge(cmd string) (finish func()) {
 		return func() {}
 	}
 	done := make(chan string, 1)
-	go func() { done <- fetchVersionQuick(base) }()
+	go func() {
+		sv, _, _, err := serverVersion(base) // "" on any failure or non-release
+		if err != nil {
+			sv = ""
+		}
+		done <- sv
+	}()
+	deadline := time.After(nudgeTimeout)
 	return func() {
 		var sv string
 		select {
 		case sv = <-done:
-		case <-time.After(nudgeFetchTime):
+		case <-deadline:
 		}
 		// Record the attempt even when it failed, so an unreachable server costs
 		// one try a day, not one per command.
@@ -74,7 +79,11 @@ func nudgeTarget(cmd string) (string, bool) {
 	if !nudgeCommands[cmd] || Version == "dev" {
 		return "", false
 	}
-	for _, env := range []string{"ARTIFACTA_NO_UPDATE_CHECK", "ARTIFACTA_API_KEY", "CI"} {
+	// Same test as remoteTarget: any API key means a bot.
+	if strings.TrimSpace(os.Getenv("ARTIFACTA_API_KEY")) != "" {
+		return "", false
+	}
+	for _, env := range []string{"ARTIFACTA_NO_UPDATE_CHECK", "CI"} {
 		if v := strings.TrimSpace(os.Getenv(env)); v != "" && v != "0" && !strings.EqualFold(v, "false") {
 			return "", false
 		}
@@ -101,26 +110,6 @@ func nudgeMessage(current, serverVer string) string {
 	}
 }
 
-// fetchVersionQuick reads GET /version with a short timeout; "" on any failure.
-func fetchVersionQuick(baseURL string) string {
-	client := &http.Client{Timeout: nudgeTimeout}
-	resp, err := client.Get(remoteURL(baseURL, "/version"))
-	if err != nil {
-		return ""
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return ""
-	}
-	var out struct {
-		Version string `json:"version"`
-	}
-	if json.NewDecoder(io.LimitReader(resp.Body, 64<<10)).Decode(&out) != nil || out.Version == "dev" {
-		return ""
-	}
-	return out.Version
-}
-
 func loadUpdateCheck() (updateCheck, bool) {
 	var u updateCheck
 	b, err := os.ReadFile(filepath.Join(config.Dir(), nudgeFile))
@@ -139,5 +128,16 @@ func saveUpdateCheck(u updateCheck) {
 	if os.MkdirAll(dir, 0o700) != nil {
 		return
 	}
-	_ = os.WriteFile(filepath.Join(dir, nudgeFile), b, 0o600)
+	// Write-then-rename so parallel commands never read a torn file.
+	tmp, err := os.CreateTemp(dir, nudgeFile+".*")
+	if err != nil {
+		return
+	}
+	_, werr := tmp.Write(b)
+	if cerr := tmp.Close(); werr == nil {
+		werr = cerr
+	}
+	if werr != nil || os.Rename(tmp.Name(), filepath.Join(dir, nudgeFile)) != nil {
+		_ = os.Remove(tmp.Name())
+	}
 }
